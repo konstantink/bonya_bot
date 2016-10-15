@@ -671,7 +671,7 @@ func checkMixedActions(oldLevel LevelInfo, newLevel LevelInfo) {
 }
 
 func main() {
-	bot, err := tgbotapi.NewBotAPI("152794909:AAE5xuhVDQqJNopSOV6AQ333Em8PQ1bxQzM")
+	bot, err := tgbotapi.NewBotAPI("<TOKEN>")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -682,8 +682,8 @@ func main() {
 
 	jar, _ := cookiejar.New(nil)
 	en := &EnAPI{
-		login: "slipkid",
-		password: "P3ckB!rd",
+		login: "<NICK>",
+		password: "<PASSWORD>",
 		Client: &http.Client{Jar: jar},
 		CurrentGameId: 56326,
 		CurrentLevel: nil,
