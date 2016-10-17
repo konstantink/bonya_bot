@@ -70,7 +70,7 @@ func (m LevelMixedActions) Len() int {
 }
 
 func (m LevelMixedActions) Less(i, j int) bool {
-	return m[i].ActionId < m[j].ActionId
+	return m[i].ActionId > m[j].ActionId
 }
 
 func (m LevelMixedActions) Swap(i, j int) {

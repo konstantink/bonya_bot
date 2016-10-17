@@ -20,7 +20,14 @@ import (
 	"regexp"
 	"strconv"
 	"path"
+	"github.com/kelseyhightower/envconfig"
 )
+
+type EnvConfig struct {
+	BotToken string `envconfig:"bot_token"`
+	User     string
+	Password string
+}
 
 type EnResponse interface {
 	ReadData(data []byte)
@@ -150,8 +157,8 @@ var (
 //}
 
 const (
-	EnAddress = "http://quest.ua/%s"
-	//EnAddress = "http://demo.en.cx/%s"
+	//EnAddress = "http://quest.ua/%s"
+	EnAddress = "http://demo.en.cx/%s"
 	LoginEndpoint = "login/signin?json=1"
 	LevelInfoEndpoint = "GameEngines/Encounter/Play/%d?json=1"
 	SendCodeEndpoint
@@ -513,12 +520,12 @@ func processBotCommand(m *tgbotapi.Message, en *EnAPI, bot *tgbotapi.BotAPI) err
 			messageChan <- tgbotapi.NewMessage(m.Chat.ID, text)
 		}
 	case WatchCommand:
-		ticker := time.NewTicker(2*time.Second)
+		ticker := time.NewTicker(time.Second)
 		quit = make(chan struct{})
 		go func() {
 			for {
 				select{
-				case <- ticker.C:
+				case <- ticker.C: {
 					lvl, err := en.GetLevelInfo()
 					//log.Println("Error:", err)
 					//en.GetLevelInfo()
@@ -526,7 +533,9 @@ func processBotCommand(m *tgbotapi.Message, en *EnAPI, bot *tgbotapi.BotAPI) err
 						log.Println("Error:", err)
 						continue
 					}
+					log.Println("Send level to channel")
 					levelChan <- *(lvl.Level)
+				}
 				case <- quit:
 					ticker.Stop()
 				}
@@ -595,26 +604,13 @@ func levelChangeHandler(li *LevelInfo) (msg tgbotapi.MessageConfig) {
 func processChanges(en *EnAPI) {
 	for {
 		select {
-		case hi := <- helpChangeChan:
-			msg := helpChangeHandler(&hi)
-			messageChan <- msg
-		case mai := <- mixedActionChangeChan:
-			msg := mixedActionChangeHandler(&mai)
-			messageChan <- msg
-		case si := <- sectorChangeChan:
-			msg := sectorChangeHandler(&si)
-			messageChan <- msg
-		case li := <- levelChangeChan:
-			msg := levelChangeHandler(&li)
-			messageChan <- msg
 		case level := <- levelChan: {
-			log.Println("Level is changed")
+			log.Println("Receive level from channel")
 			if isNewLevel(en.CurrentLevel, &level) {
 				log.Println("Level is new")
 				levelChangeChan <- level
 				continue
 			}
-			log.Println("Level is not new")
 			go checkHelps(*en.CurrentLevel, level)
 			go checkMixedActions(*en.CurrentLevel, level)
 			go checkSectors(*en.CurrentLevel, level)
@@ -627,15 +623,36 @@ func processChanges(en *EnAPI) {
 	}
 }
 
+func processLevelChanges() {
+	for {
+		select {
+		case hi := <-helpChangeChan:
+			msg := helpChangeHandler(&hi)
+			messageChan <- msg
+		case mai := <-mixedActionChangeChan:
+			msg := mixedActionChangeHandler(&mai)
+			messageChan <- msg
+		case si := <-sectorChangeChan:
+			msg := sectorChangeHandler(&si)
+			messageChan <- msg
+		case li := <-levelChangeChan:
+			msg := levelChangeHandler(&li)
+			messageChan <- msg
+		}
+	}
+}
+
+
 func isNewLevel(oldLevel *LevelInfo, newLevel *LevelInfo) bool {
 	return oldLevel.LevelId != newLevel.LevelId
 }
 
 func checkHelps(oldLevel LevelInfo, newLevel LevelInfo) {
-	log.Println("Start checking changes in Helps section")
+	log.Println("Check helps state")
 	for i, _ := range oldLevel.Helps {
 		if oldLevel.Helps[i].Number == newLevel.Helps[i].Number {
 			if oldLevel.Helps[i].HelpText != newLevel.Helps[i].HelpText {
+				log.Println("New hint is available")
 				helpChangeChan <- newLevel.Helps[i]
 			}
 		}
@@ -648,6 +665,7 @@ func checkSectors(oldLevel LevelInfo, newLevel LevelInfo) {
 	for i, _ := range oldLevel.Sectors {
 		if oldLevel.Sectors[i].Name == newLevel.Sectors[i].Name {
 			if oldLevel.Sectors[i].IsAnswered != newLevel.Sectors[i].IsAnswered {
+				log.Println("Sector is closed")
 				sectorChangeChan <- ExtendedSectorInfo{
 					sectorInfo: &newLevel.Sectors[i],
 					sectorsLeft: newLevel.SectorsLeftToClose,
@@ -662,16 +680,37 @@ func checkSectors(oldLevel LevelInfo, newLevel LevelInfo) {
 func checkMixedActions(oldLevel LevelInfo, newLevel LevelInfo) {
 	log.Println("Start checking changes in MixedActions section")
 	sort.Sort(newLevel.MixedActions)
-	if len(oldLevel.MixedActions) < len(newLevel.MixedActions) {
-		for i := len(oldLevel.MixedActions); i < len(newLevel.MixedActions); i++ {
-			mixedActionChangeChan <- newLevel.MixedActions[i]
+	fmt.Println(len(newLevel.MixedActions))
+	if len(newLevel.MixedActions) > 0 {
+		if len(oldLevel.MixedActions) == 0 {
+			for _, item := range newLevel.MixedActions  {
+				mixedActionChangeChan <- item
+			}
+		} else {
+			lastActioId := oldLevel.MixedActions[0].ActionId
+			for _, item := range newLevel.MixedActions {
+				if item.ActionId == lastActioId {
+					break
+				}
+				mixedActionChangeChan <- item
+			}
 		}
 	}
+	//if len(oldLevel.MixedActions) < len(newLevel.MixedActions) {
+	//	for i := len(oldLevel.MixedActions); i < len(newLevel.MixedActions); i++ {
+	//		mixedActionChangeChan <- newLevel.MixedActions[i]
+	//	}
+	//}
 	log.Println("Finish checking changes in MixedActions section")
 }
 
 func main() {
-	bot, err := tgbotapi.NewBotAPI("<TOKEN>")
+	var (
+		envConfig EnvConfig
+	)
+	err := envconfig.Process("bonya", &envConfig)
+	fmt.Println(envConfig)
+	bot, err := tgbotapi.NewBotAPI(envConfig.BotToken)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -682,28 +721,29 @@ func main() {
 
 	jar, _ := cookiejar.New(nil)
 	en := &EnAPI{
-		login: "<NICK>",
-		password: "<PASSWORD>",
+		login: envConfig.User,
+		password: envConfig.Password,
 		Client: &http.Client{Jar: jar},
-		CurrentGameId: 56326,
+		CurrentGameId: 25733,
 		CurrentLevel: nil,
 		Levels: list.New()}
 	en.Login()
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-	updates, _ := bot.GetUpdatesChan(u)
+	//updates, _ := bot.GetUpdatesChan(u)
 
-	helpChangeChan = make(chan HelpInfo)
+	helpChangeChan = make(chan HelpInfo, 5)
 	messageChan = make(MessageChan)
 	photoChan = make(PhotoChan)
 	levelChan = make(chan LevelInfo)
-	levelChangeChan = make(LevelChan)
-	sectorChangeChan = make(SectorChan)
-	mixedActionChangeChan = make(chan MixedActionInfo)
+	levelChangeChan = make(LevelChan, 5)
+	sectorChangeChan = make(SectorChan, 5)
+	mixedActionChangeChan = make(chan MixedActionInfo, 5)
 
 
 	go processChanges(en)
+	go processLevelChanges()
 	go func(bot *tgbotapi.BotAPI) {
 		log.Println("Read message from channel to send to chat", chatId)
 		for {
@@ -721,23 +761,33 @@ func main() {
 		}
 	}(bot)
 
-	for update := range updates {
-		if update.Message == nil {
-		    continue
-		}
+	_, err = bot.SetWebhook(tgbotapi.NewWebhookWithCert("https://46.101.116.100:8443/"+bot.Token, "cert.pem"))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
+	updates := bot.ListenForWebhook("/" + bot.Token)
+	go http.ListenAndServeTLS("0.0.0.0:8443", "cert.pem", "key.pem", nil)
+
+	for update := range updates {
+		log.Printf("%+v\n", update)
 		if IsMessageBotCommand(update.Message) {
 			log.Println("It is bot command")
 			processBotCommand(update.Message, en, bot)
 		}
-		//switch update.Message.Text
-
-		//msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
-		//msg.ReplyToMessageID = update.Message.MessageID
-
-		//bot.Send(msg)
 	}
+
+	//for update := range updates {
+	//	if update.Message == nil {
+	//	    continue
+	//	}
+	//
+	//	log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
+	//	if IsMessageBotCommand(update.Message) {
+	//		log.Println("It is bot command")
+	//		processBotCommand(update.Message, en, bot)
+	//	}
+	//}
 
 	//en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint))
 	//en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint))

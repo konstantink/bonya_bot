@@ -6,6 +6,7 @@
 # Folders
 _obj
 _test
+Build
 .idea
 
 # Architecture specific extensions/prefixes
