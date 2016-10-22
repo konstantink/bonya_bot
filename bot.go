@@ -245,9 +245,9 @@ func processChanges(en *EnAPI) {
 				levelChangeChan <- level
 				continue
 			}
-			go checkHelps(*en.CurrentLevel, level)
-			go checkMixedActions(*en.CurrentLevel, level)
-			go checkSectors(*en.CurrentLevel, level)
+			go CheckHelps(*en.CurrentLevel, level)
+			go CheckMixedActions(*en.CurrentLevel, level)
+			go CheckSectors(*en.CurrentLevel, level)
 			en.CurrentLevel = &level
 			//time.Sleep(5*time.Second)
 		}
@@ -279,63 +279,6 @@ func processLevelChanges() {
 
 func isNewLevel(oldLevel *LevelInfo, newLevel *LevelInfo) bool {
 	return oldLevel.LevelId != newLevel.LevelId
-}
-
-func checkHelps(oldLevel LevelInfo, newLevel LevelInfo) {
-	log.Println("Check helps state")
-	for i, _ := range oldLevel.Helps {
-		if oldLevel.Helps[i].Number == newLevel.Helps[i].Number {
-			if oldLevel.Helps[i].HelpText != newLevel.Helps[i].HelpText {
-				log.Println("New hint is available")
-				helpChangeChan <- newLevel.Helps[i]
-			}
-		}
-	}
-	log.Println("Finish checking changes in Helps section")
-}
-
-func checkSectors(oldLevel LevelInfo, newLevel LevelInfo) {
-	log.Println("Start checking changes in Sectors section")
-	for i, _ := range oldLevel.Sectors {
-		if oldLevel.Sectors[i].Name == newLevel.Sectors[i].Name {
-			if oldLevel.Sectors[i].IsAnswered != newLevel.Sectors[i].IsAnswered {
-				log.Println("Sector is closed")
-				sectorChangeChan <- ExtendedSectorInfo{
-					sectorInfo: &newLevel.Sectors[i],
-					sectorsLeft: newLevel.SectorsLeftToClose,
-					sectorsPassed: newLevel.PassedSectorsCount,
-					totalSectors: int8(len(newLevel.Sectors))}
-			}
-		}
-	}
-	log.Println("Finish checking changes in Sectors section")
-}
-
-func checkMixedActions(oldLevel LevelInfo, newLevel LevelInfo) {
-	log.Println("Start checking changes in MixedActions section")
-	sort.Sort(newLevel.MixedActions)
-	fmt.Println(len(newLevel.MixedActions))
-	if len(newLevel.MixedActions) > 0 {
-		if len(oldLevel.MixedActions) == 0 {
-			for _, item := range newLevel.MixedActions  {
-				mixedActionChangeChan <- item
-			}
-		} else {
-			lastActioId := oldLevel.MixedActions[0].ActionId
-			for _, item := range newLevel.MixedActions {
-				if item.ActionId == lastActioId {
-					break
-				}
-				mixedActionChangeChan <- item
-			}
-		}
-	}
-	//if len(oldLevel.MixedActions) < len(newLevel.MixedActions) {
-	//	for i := len(oldLevel.MixedActions); i < len(newLevel.MixedActions); i++ {
-	//		mixedActionChangeChan <- newLevel.MixedActions[i]
-	//	}
-	//}
-	log.Println("Finish checking changes in MixedActions section")
 }
 
 func not_main() {

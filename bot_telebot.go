@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"container/list"
 	"net/http/cookiejar"
+	"sort"
 )
 
 //type BotCommand int8
@@ -154,6 +155,63 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 	}
 }
 
+func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
+	log.Println("Check helps state")
+	for i, _ := range oldLevel.Helps {
+		if oldLevel.Helps[i].Number == newLevel.Helps[i].Number {
+			if oldLevel.Helps[i].HelpText != newLevel.Helps[i].HelpText {
+				log.Println("New hint is available")
+				helpChangeChan <- newLevel.Helps[i]
+			}
+		}
+	}
+	log.Println("Finish checking changes in Helps section")
+}
+
+func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
+	log.Println("Start checking changes in Sectors section")
+	for i, _ := range oldLevel.Sectors {
+		if oldLevel.Sectors[i].Name == newLevel.Sectors[i].Name {
+			if oldLevel.Sectors[i].IsAnswered != newLevel.Sectors[i].IsAnswered {
+				log.Println("Sector is closed")
+				sectorChangeChan <- ExtendedSectorInfo{
+					sectorInfo: &newLevel.Sectors[i],
+					sectorsLeft: newLevel.SectorsLeftToClose,
+					sectorsPassed: newLevel.PassedSectorsCount,
+					totalSectors: int8(len(newLevel.Sectors))}
+			}
+		}
+	}
+	log.Println("Finish checking changes in Sectors section")
+}
+
+func CheckMixedActions(oldLevel *LevelInfo, newLevel *LevelInfo) {
+	log.Println("Start checking changes in MixedActions section")
+	sort.Sort(newLevel.MixedActions)
+	fmt.Println(len(newLevel.MixedActions))
+	if len(newLevel.MixedActions) > 0 {
+		if len(oldLevel.MixedActions) == 0 {
+			for _, item := range newLevel.MixedActions  {
+				mixedActionChangeChan <- item
+			}
+		} else {
+			lastActioId := oldLevel.MixedActions[0].ActionId
+			for _, item := range newLevel.MixedActions {
+				if item.ActionId == lastActioId {
+					break
+				}
+				mixedActionChangeChan <- item
+			}
+		}
+	}
+	//if len(oldLevel.MixedActions) < len(newLevel.MixedActions) {
+	//	for i := len(oldLevel.MixedActions); i < len(newLevel.MixedActions); i++ {
+	//		mixedActionChangeChan <- newLevel.MixedActions[i]
+	//	}
+	//}
+	log.Println("Finish checking changes in MixedActions section")
+}
+
 func initChannels() {
 	sendInfoChan = make(chan *SendInfo, 10)
 	photoInfoChan = make(chan *PhotoInfo, 10)
@@ -189,8 +247,17 @@ func main() {
 				bot.SendMessage(si.Recepient, si.Text, si.Options)
 			case pi := <-photoInfoChan:
 				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
-			case <-levelInfoChan:
-
+			case li := <-levelInfoChan:
+				log.Println("Receive level from channel")
+				if isNewLevel(en.CurrentLevel, li) {
+					log.Println("Level is new")
+					levelChangeChan <- li
+					continue
+				}
+				go CheckHelps(en.CurrentLevel, li)
+				go CheckMixedActions(en.CurrentLevel, li)
+				go CheckSectors(en.CurrentLevel, li)
+				en.CurrentLevel = li
 			}
 		}
 	}()
