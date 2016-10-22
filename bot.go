@@ -4,30 +4,15 @@ import (
 	"gopkg.in/telegram-bot-api.v4"
 	"net/http"
 	"fmt"
-	"net/url"
-	"io/ioutil"
 	"log"
-	"encoding/json"
 	"net/http/cookiejar"
-	"bytes"
-	"strings"
 	"errors"
-	"io"
-	"os"
 	"container/list"
 	"time"
 	"sort"
-	"regexp"
-	"strconv"
-	"path"
 	"github.com/kelseyhightower/envconfig"
+	//"github.com/tucnak/telebot"
 )
-
-type EnvConfig struct {
-	BotToken string `envconfig:"bot_token"`
-	User     string
-	Password string
-}
 
 type EnResponse interface {
 	ReadData(data []byte)
@@ -38,72 +23,6 @@ type EnResponse interface {
 //	atoken string `json:"atoken"`
 //	stoken string `json:"stoken"`
 //}
-
-type EnAPI struct {
-	login         string       `json:"Login"`
-	password      string       `json:"Password"`
-	Client        *http.Client `json:"-"`
-	CurrentGameId int32        `json:"-"`
-	CurrentLevel  *LevelInfo   `json:"-"`
-	Levels        *list.List   `json:"-"`
-}
-
-type EnAPIAuthResponse struct {
-	Ok          bool
-	Cookies     []*http.Cookie
-	Result      json.RawMessage
-	StatusCode  int
-	Description string
-}
-
-func (apiResp *EnAPIAuthResponse) CreateFromResponse(resp *http.Response) error {
-	var (
-		bytes []byte
-		err error
-		respBody map[string]interface{}
-	)
-	bytes, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	err = json.Unmarshal(bytes, &respBody)
-	if err != nil {
-		return err
-	}
-
-	apiResp.Ok = respBody["Error"].(float64) == 0
-	if !apiResp.Ok {
-		apiResp.Description = respBody["Description"].(string)
-	} else {
-		apiResp.Description = ""
-	}
-	apiResp.Result = bytes
-	apiResp.Cookies = resp.Cookies()
-	apiResp.StatusCode = resp.StatusCode
-
-	return nil
-}
-
-type BotCommand int8
-
-const (
-	InfoCommand BotCommand = 1 << iota
-	SetChatIdCommand
-	WatchCommand
-	StopWatchingCommand
-	TestHelpChange
-)
-
-var (
-	BotCommandDict map[string]BotCommand = map[string]BotCommand{
-	"info": InfoCommand,
-	"setchat": SetChatIdCommand,
-	"watch": WatchCommand,
-	"stopwatching": StopWatchingCommand,
-	"helpchange": TestHelpChange}
-)
 
 //type LevelChangeStruct struct {}
 //type HelpChangeStruct struct {}
@@ -156,159 +75,9 @@ var (
 //	return nil
 //}
 
-const (
-	//EnAddress = "http://quest.ua/%s"
-	EnAddress = "http://demo.en.cx/%s"
-	LoginEndpoint = "login/signin?json=1"
-	LevelInfoEndpoint = "GameEngines/Encounter/Play/%d?json=1"
-	SendCodeEndpoint
-	SendBonusCodeEndpoint
-)
-
-const (
-	//CoordinateLink = `<a href="https://maps.google.com/maps?daddr=%v&saddr=My+Location">%v</a>`
-	//CoordinateLink = `<a href="comgooglemapurl://maps.google.com/maps?daddr=%v&saddr=My+Location">%v</a>`
-	//CoordinateLink = `comgooglemapsurl://maps.google.com/maps?daddr=%v&saddr=My+Location`
-	CoordinateLink = `[%v](http://maps.google.com/maps?daddr=%v&saddr=My+Location)`
-	//CoordinateLink = `[%v](comgooglemapsurl://maps.google.com/maps?daddr=%v&saddr=My+Location)`
-)
-
-const (
-	LevelInfoString = `
-*Номер уровня:* %d
-*Название уровня:* %q
-*Времени на уровень:* %s
-*Автопереход через:* %s
-*Задание:*
-%s
-`
-	HelpInfoString = `
-*Подсказка:* %d
-*Текст:* %s`
-	//MixedActionInfoString = `
-//*%s* вбил код *%q*.`
-	CorrectAnswerString = `*+* %q *%s*`
-	IncorrectAnswerString = `*-* %q *%s*`
-	SectorInfoString = `
-	Сектор *%q* закрыт. Осталось %d из %d`
-)
-
 //const (
 //	enAPI *EnAPI = EnAPI{"Harry_Potter", "toknkpils85", new(http.Client)}
 //)
-
-func (en *EnAPI) MakeRequest(endpoint string, params url.Values) (EnAPIAuthResponse, error) {
-	var enUrl string = fmt.Sprintf(EnAddress, LoginEndpoint)
-
-	resp, err := en.Client.PostForm(enUrl, params)
-	if err != nil {
-		fmt.Print("Exit 1")
-		return EnAPIAuthResponse{}, err
-	}
-
-	var apiResp EnAPIAuthResponse
-	apiResp.CreateFromResponse(resp)
-
-	return apiResp, nil
-}
-
-func parseLevelJson(body io.ReadCloser) (*LevelResponse, error) {
-	var (
-		lvl *LevelResponse
-		err error
-	)
-	defer body.Close()
-	respBody, _ := ioutil.ReadAll(body)
-	lvl = new(LevelResponse)
-	err = json.Unmarshal(respBody, &lvl)
-	if err != nil {
-		log.Println("Error:", err)
-		return &LevelResponse{}, err
-	}
-
-	return lvl, nil
-}
-
-func (en *EnAPI) Login() (EnAPIAuthResponse, error) {
-	var (
-		authResponse EnAPIAuthResponse
-		err error
-		params url.Values
-	)
-	params = make(url.Values)
-	params.Set("Login", en.login)
-	params.Set("Password", en.password)
-
-	authResponse, err = en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), params)
-	if err != nil {
-		log.Print(err)
-		return EnAPIAuthResponse{}, nil
-	}
-	return authResponse, err
-}
-
-func (en *EnAPI) GetLevelInfo() (*LevelResponse, error) {
-	//gameUrl := "http://demo.en.cx/GameEngines/Encounter/Play/25733?json=1"
-	var (
-		gameUrl string = fmt.Sprintf(EnAddress, fmt.Sprintf(LevelInfoEndpoint, en.CurrentGameId))
-		lvl *LevelResponse
-		err error
-	)
-
-	resp, err := en.Client.Get(gameUrl)
-	if err != nil {
-		log.Println("Error on GET request:", err)
-		return &LevelResponse{}, err
-	}
-
-	if strings.HasPrefix(resp.Header["Content-Type"][0], "text/html") {
-		log.Println("Incorrect cookies, need to re-login")
-		return &LevelResponse{}, errors.New("Incorrect cookies, need to re-login")
-	}
-
-	lvl, err = parseLevelJson(resp.Body)
-
-	return lvl, err
-}
-
-type sendCodeResponse struct {
-
-}
-
-func (en *EnAPI) SendCode(gameId int32, code string) (*LevelResponse, error) {
-	var (
-		codeUrl string = fmt.Sprintf(EnAddress, fmt.Sprintf(SendCodeEndpoint, gameId))
-		resp *http.Response
-		body SendCodeRequest
-		lvl *LevelResponse
-		bodyJson []byte
-		err error
-	)
-	body = SendCodeRequest{
-		codeRequest: codeRequest{
-			LevelId: 249435,
-			LevelNumber: 3},
-		LevelAction: code,
-	}
-	bodyJson, err = json.Marshal(body)
-	if err != nil {
-		log.Println("Error while serializing body:", err)
-		return nil, err
-	}
-
-	resp, err = en.Client.Post(codeUrl, "application/json", bytes.NewBuffer(bodyJson))
-	if err != nil {
-		log.Println("Error while preforming request:", err)
-		return nil, err
-	}
-
-	lvl, err = parseLevelJson(resp.Body)
-	return lvl, err
-}
-
-func (en *EnAPI) SendBonusCode() {
-
-}
 
 func isAdmin(id int) bool {
 	for _, userId := range(admins) {
@@ -317,141 +86,6 @@ func isAdmin(id int) bool {
 		}
 	}
 	return false
-}
-
-type Coordinate struct {
-	lon            float64
-	lat            float64
-	originalString string
-}
-type Coordinates []Coordinate
-func (c Coordinate) String() (text string) {
-	text = fmt.Sprintf("%f,%f", c.lon, c.lat)
-	return
-}
-
-func replaceCoordinates(text string) string {
-	//fmt.Printf("%v", Coordinate{lon:1.23, lat:0.234})
-	var (
-		re  *regexp.Regexp = regexp.MustCompile("(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
-		mr  [][]string = re.FindAllStringSubmatch(text, -1)
-		res []byte = make([]byte, len(text))
-	)
-	copy(res, []byte(text))
-	if len(mr) > 0 {
-		coords := make(Coordinates, len(mr), len(mr))
-		for i, item := range re.FindAllStringSubmatch(text, -1) {
-			lon, _ := strconv.ParseFloat(item[1], 64)
-			lat, _ := strconv.ParseFloat(item[2], 64)
-			coords[i] = Coordinate{lon: lon, lat: lat, originalString: item[0]}
-			//text = re.ReplaceAllString(text, fmt.Sprintf(CoordinateLink, coord, coord))
-			res = regexp.MustCompile(coords[i].originalString).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf(CoordinateLink, coords[i], coords[i])))
-		}
-
-		return string(res)
-	}
-	return text
-}
-
-type Image struct {
-	url     string
-	caption string
-}
-
-func replaceImages(text string) string {
-	var (
-		re  *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\">")
-		mr  [][]string = re.FindAllStringSubmatch(text, -1)
-		res []byte = make([]byte, len(text))
-	)
-	copy(res, []byte(text))
-	if len(mr) > 0 {
-		for i, item := range re.FindAllStringSubmatch(text, -1){
-			img := Image{url: item[1], caption: fmt.Sprintf("Картинка #%d", i+1)}
-			res = regexp.MustCompile(item[0]).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", img.caption, img.url)))
-			go sendImageFromUrl(&img)
-		}
-		return string(res)
-	}
-	return text
-}
-
-func sendImageFromUrl(img *Image) {
-	var (
-		file *os.File
-	)
-	resp, err := http.Get(img.url)
-	if err != nil {
-		log.Println("Can't download image:", err)
-	}
-
-	defer resp.Body.Close()
-	filename := fmt.Sprintf("/tmp/%s", path.Base(img.url))
-	fileInfo, err := os.Stat(filename)
-	if os.IsExist(err) && fileInfo.Size() > 0 {
-			file, err = os.Open(filename)
-	} else {
-		log.Println("Image is not downloaded yet:", err)
-		file, err = os.Create(filename)
-		if err != nil {
-			log.Fatal("Cannot create file:", err)
-			return
-		}
-	}
-	defer file.Close()
-	// Use io.Copy to just dump the response body to the file. This supports huge files
-	_, err = io.Copy(file, resp.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-	msg := tgbotapi.NewPhotoUpload(chatId, filename)
-	msg.Caption = strings.ToUpper(img.caption)
-	log.Println("Sending message with photo to the channel")
-	//return msg
-	photoChan <- msg
-	//bot.Send(msg)
-}
-
-func replaceCommonTags(text string) string {
-	var (
-		reBold   *regexp.Regexp = regexp.MustCompile("<b>(.+?)</b>")
-		mrBold   [][]string = reBold.FindAllStringSubmatch(text, -1)
-		reItalic *regexp.Regexp = regexp.MustCompile("<i>(.+?)</i>")
-		mrItalic [][]string = reItalic.FindAllStringSubmatch(text, -1)
-		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color=\"(\\w+)\".*?>(.+?)</font>")
-		mrFont   [][]string = reFont.FindAllStringSubmatch(text, -1)
-		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\"(.+?)\".*?>(.+?)</a>")
-		mrA      [][]string = reA.FindAllStringSubmatch(text, -1)
-		res      []byte = make([]byte, len(text))
-	)
-
-	copy(res, []byte(text))
-	if len(mrBold) > 0 {
-		for _, item := range mrBold {
-			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(fmt.Sprintf("*%s*", item[1])))
-		}
-	}
-	if len(mrItalic) > 0 {
-		for _, item := range mrItalic {
-			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(fmt.Sprintf("_%s_", item[1])))
-		}
-	}
-	if len(mrFont) > 0 {
-		for _, item := range mrFont {
-			res = regexp.MustCompile(item[0]).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("#%s#%s#", item[1], item[2])))
-		}
-	}
-	if len(mrA) > 0 {
-		for _, item := range mrA {
-			res = regexp.MustCompile(item[0]).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", item[2], item[1])))
-		}
-	}
-	res = regexp.MustCompile("</?p>").ReplaceAllLiteral(res, []byte(""))
-	return string(res)
 }
 
 func sendMessage(bot *tgbotapi.BotAPI, chatId int64, text string) {
@@ -490,9 +124,9 @@ func processBotCommand(m *tgbotapi.Message, en *EnAPI, bot *tgbotapi.BotAPI) err
 		}
 		log.Println("TIMEOUT:", uint64(en.CurrentLevel.Timeout))
 		//res = regexp.MustCompile("_").ReplaceAllLiteralString(res, ("\\__"))
-		res = replaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
-		res = replaceImages(res)
-		res = replaceCommonTags(res)
+		res = ReplaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
+		res = ReplaceImages(res)
+		res = ReplaceCommonTags(res)
 		text = fmt.Sprintf(LevelInfoString, en.CurrentLevel.Number, en.CurrentLevel.Name,
 			PrettyTimePrint(en.CurrentLevel.Timeout),
 			PrettyTimePrint(en.CurrentLevel.TimeoutSecondsRemain),
@@ -704,20 +338,23 @@ func checkMixedActions(oldLevel LevelInfo, newLevel LevelInfo) {
 	log.Println("Finish checking changes in MixedActions section")
 }
 
-func main() {
+func not_main() {
 	var (
 		envConfig EnvConfig
 	)
 	err := envconfig.Process("bonya", &envConfig)
 	fmt.Println(envConfig)
 	bot, err := tgbotapi.NewBotAPI(envConfig.BotToken)
+	//bot, err := telebot.NewBot(envConfig.BotToken)
 	if err != nil {
 		log.Panic(err)
 	}
 
 	bot.Debug = true
+	bot.RemoveWebhook()
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
+	//log.Printf("Authorized on account %s", bot.Identity.Username)
 
 	jar, _ := cookiejar.New(nil)
 	en := &EnAPI{
@@ -730,8 +367,10 @@ func main() {
 	en.Login()
 
 	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	//updates, _ := bot.GetUpdatesChan(u)
+	u.Timeout = 5
+	updates, _ := bot.GetUpdatesChan(u)
+	//updates := make(chan telebot.Message)
+	//bot.Listen(updates, 60*time.Second)
 
 	helpChangeChan = make(chan HelpInfo, 5)
 	messageChan = make(MessageChan)
@@ -742,52 +381,52 @@ func main() {
 	mixedActionChangeChan = make(chan MixedActionInfo, 5)
 
 
-	go processChanges(en)
-	go processLevelChanges()
-	go func(bot *tgbotapi.BotAPI) {
-		log.Println("Read message from channel to send to chat", chatId)
-		for {
-			if chatId != 0 {
-				select {
-				case msg := <- messageChan:
-					//msg := tgbotapi.NewMessage(chatId, text)
-					//msg.ParseMode = "Markdown"
-					bot.Send(msg)
-				case ph := <- photoChan:
-					log.Println("Sending photo to the chat")
-					bot.Send(ph)
-				}
-			}
-		}
-	}(bot)
-
-	_, err = bot.SetWebhook(tgbotapi.NewWebhookWithCert("https://46.101.116.100:8443/"+bot.Token, "cert.pem"))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	updates := bot.ListenForWebhook("/" + bot.Token)
-	go http.ListenAndServeTLS("0.0.0.0:8443", "cert.pem", "key.pem", nil)
-
-	for update := range updates {
-		log.Printf("%+v\n", update)
-		if IsMessageBotCommand(update.Message) {
-			log.Println("It is bot command")
-			processBotCommand(update.Message, en, bot)
-		}
-	}
-
-	//for update := range updates {
-	//	if update.Message == nil {
-	//	    continue
+	//go processChanges(en)
+	//go processLevelChanges()
+	//go func(bot *tgbotapi.BotAPI) {
+	//	log.Println("Read message from channel to send to chat", chatId)
+	//	for {
+	//		if chatId != 0 {
+	//			select {
+	//			case msg := <- messageChan:
+	//				//msg := tgbotapi.NewMessage(chatId, text)
+	//				//msg.ParseMode = "Markdown"
+	//				bot.Send(msg)
+	//			case ph := <- photoChan:
+	//				log.Println("Sending photo to the chat")
+	//				bot.Send(ph)
+	//			}
+	//		}
 	//	}
+	//}(bot)
+
+	//_, err = bot.SetWebhook(tgbotapi.NewWebhookWithCert("https://178.165.58.187:8443/"+bot.Token, "bonya-cert.pem"))
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
 	//
-	//	log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
+	//updates := bot.ListenForWebhook("/" + bot.Token)
+	//go http.ListenAndServeTLS("0.0.0.0:8443", "bonya-cert.pem", "bonya-key.pem", nil)
+	//
+	//for update := range updates {
+	//	log.Printf("%+v\n", update)
 	//	if IsMessageBotCommand(update.Message) {
 	//		log.Println("It is bot command")
 	//		processBotCommand(update.Message, en, bot)
 	//	}
 	//}
+
+	for update := range updates {
+		if update.Message == nil {
+		    continue
+		}
+
+		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
+		//if IsBotCommand(update.Message) {
+		//	log.Println("It is bot command")
+		//	processBotCommand(update.Message, en, bot)
+		//}
+	}
 
 	//en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint))
 	//en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint))
