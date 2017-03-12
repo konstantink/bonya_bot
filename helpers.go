@@ -1,18 +1,18 @@
 package main
 
 import (
-	"gopkg.in/telegram-bot-api.v4"
-	"time"
-	"fmt"
 	"bytes"
+	"fmt"
+	"github.com/tucnak/telebot"
+	"gopkg.in/telegram-bot-api.v4"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path"
 	"regexp"
 	"strconv"
-	"os"
-	"net/http"
-	"log"
-	"path"
-	"io"
-	"github.com/tucnak/telebot"
+	"time"
 )
 
 type EnvConfig struct {
@@ -27,6 +27,7 @@ type Coordinate struct {
 	originalString string
 }
 type Coordinates []Coordinate
+
 func (c Coordinate) String() (text string) {
 	text = fmt.Sprintf("%f,%f", c.lon, c.lat)
 	return
@@ -41,8 +42,8 @@ func ReplaceCoordinates(text string) string {
 	//fmt.Printf("%v", Coordinate{lon:1.23, lat:0.234})
 	var (
 		re  *regexp.Regexp = regexp.MustCompile("(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
-		mr  [][]string = re.FindAllStringSubmatch(text, -1)
-		res []byte = make([]byte, len(text))
+		mr  [][]string     = re.FindAllStringSubmatch(text, -1)
+		res []byte         = make([]byte, len(text))
 	)
 	copy(res, []byte(text))
 	if len(mr) > 0 {
@@ -63,14 +64,14 @@ func ReplaceCoordinates(text string) string {
 
 func ReplaceImages(text string) (string, []Image) {
 	var (
-		re  *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\">")
-		mr  [][]string = re.FindAllStringSubmatch(text, -1)
-		res []byte = make([]byte, len(text))
-		images []Image = make([]Image, 0)
+		re     *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\">")
+		mr     [][]string     = re.FindAllStringSubmatch(text, -1)
+		res    []byte         = make([]byte, len(text))
+		images []Image        = make([]Image, 0)
 	)
 	copy(res, []byte(text))
 	if len(mr) > 0 {
-		for i, item := range re.FindAllStringSubmatch(text, -1){
+		for i, item := range re.FindAllStringSubmatch(text, -1) {
 			img := Image{url: item[1], caption: fmt.Sprintf("Картинка #%d", i+1)}
 			res = regexp.MustCompile(item[0]).
 				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", img.caption, img.url)))
@@ -111,25 +112,25 @@ func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
 				log.Fatal(err)
 			}
 		}
-		telebotFile, _ := telebot.NewFile(file.Name())
+		//telebotFile, _ := telebot.NewFile(file.Name())
 		log.Println("Sending message with photo to the channel")
-		thumbnail := telebot.Thumbnail{File: telebotFile, Width: 120, Height: 120}
-		photoInfoChan <- &PhotoInfo{Recepient: recepient, Photo: &telebot.Photo{File: telebotFile,
-			Thumbnail: thumbnail, Caption: img.caption}, Options: nil}
+		//thumbnail := telebot.Thumbnail{File: telebotFile, Width: 120, Height: 120}
+		//photoInfoChan <- &PhotoInfo{Recepient: recepient, Photo: &telebot.Photo{File: telebotFile,
+		//	Thumbnail: thumbnail, Caption: img.caption}, Options: nil}
 	}
 }
 
 func ReplaceCommonTags(text string) string {
 	var (
 		reBold   *regexp.Regexp = regexp.MustCompile("<b>(.+?)</b>")
-		mrBold   [][]string = reBold.FindAllStringSubmatch(text, -1)
+		mrBold   [][]string     = reBold.FindAllStringSubmatch(text, -1)
 		reItalic *regexp.Regexp = regexp.MustCompile("<i>(.+?)</i>")
-		mrItalic [][]string = reItalic.FindAllStringSubmatch(text, -1)
+		mrItalic [][]string     = reItalic.FindAllStringSubmatch(text, -1)
 		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color=\"(\\w+)\".*?>(.+?)</font>")
-		mrFont   [][]string = reFont.FindAllStringSubmatch(text, -1)
+		mrFont   [][]string     = reFont.FindAllStringSubmatch(text, -1)
 		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\"(.+?)\".*?>(.+?)</a>")
-		mrA      [][]string = reA.FindAllStringSubmatch(text, -1)
-		res      []byte = make([]byte, len(text))
+		mrA      [][]string     = reA.FindAllStringSubmatch(text, -1)
+		res      []byte         = make([]byte, len(text))
 	)
 
 	copy(res, []byte(text))
@@ -160,12 +161,19 @@ func ReplaceCommonTags(text string) string {
 }
 
 func GetBotCommandEntity(m *tgbotapi.Message) *tgbotapi.MessageEntity {
-	for _, entity := range(*m.Entities) {
-		if (entity.Type == "bot_command") {
+	for _, entity := range *m.Entities {
+		if entity.Type == "bot_command" {
 			return &entity
 		}
 	}
 	return nil
+}
+
+func isNewLevel(oldLevel *LevelInfo, newLevel *LevelInfo) bool {
+	if oldLevel == nil {
+		return true
+	}
+	return oldLevel.LevelId != newLevel.LevelId
 }
 
 //func IsBotCommand(m *tgbotapi.Message) bool {
@@ -182,9 +190,9 @@ func PrettyTimePrint(d time.Duration) (res *bytes.Buffer) {
 	var s string
 	res = bytes.NewBufferString(s)
 	//defer res.Close()
-	if (d/3600) > 0 {
+	if (d / 3600) > 0 {
 		//res.WriteString(fmt.Sprintf("%d часов ", d/3600))
-		switch (d/3600) {
+		switch d / 3600 {
 		case 1, 21, 31, 41, 51:
 			res.WriteString(fmt.Sprintf("%d час ", d/3600))
 		case 2, 3, 4, 22, 23, 24, 32, 33, 34, 42, 43, 44, 52, 53, 54:
@@ -194,7 +202,7 @@ func PrettyTimePrint(d time.Duration) (res *bytes.Buffer) {
 		}
 	}
 	if (d/60)%60 > 0 {
-		switch (d/60)%60 {
+		switch (d / 60) % 60 {
 		case 1, 21, 31, 41, 51:
 			res.WriteString(fmt.Sprintf("%d минуту ", (d/60)%60))
 		case 2, 3, 4, 22, 23, 24, 32, 33, 34, 42, 43, 44, 52, 53, 54:
@@ -205,7 +213,7 @@ func PrettyTimePrint(d time.Duration) (res *bytes.Buffer) {
 
 	}
 	if d%60 > 0 {
-		switch d%60 {
+		switch d % 60 {
 		case 1, 21, 31, 41, 51:
 			res.WriteString(fmt.Sprintf("%d секунду", d%60))
 		case 2, 3, 4, 22, 23, 24, 32, 33, 34, 42, 43, 44, 52, 53, 54:

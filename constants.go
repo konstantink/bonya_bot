@@ -7,6 +7,7 @@ const (
 	SetChatIdCommand
 	WatchCommand
 	StopWatchingCommand
+	CodeCommand
 	TestHelpChange
 )
 
@@ -31,19 +32,20 @@ const (
 *Подсказка:* %d
 *Текст:* %s`
 	//MixedActionInfoString = `
-//*%s* вбил код *%q*.`
-	CorrectAnswerString = `*+* %q *%s*`
+	//*%s* вбил код *%q*.`
+	CorrectAnswerString   = `*+* %q *%s*`
 	IncorrectAnswerString = `*-* %q *%s*`
-	SectorInfoString = `
+	SectorInfoString      = `
 	Сектор *%q* закрыт. Осталось %d из %d`
 )
 
 var (
 	BotCommandDict map[string]BotCommand = map[string]BotCommand{
-	"info": InfoCommand,
-	"setchat": SetChatIdCommand,
-	"watch": WatchCommand,
-	"stopwatching": StopWatchingCommand,
-	"helpchange": TestHelpChange}
+		"info":         InfoCommand,
+		"setchat":      SetChatIdCommand,
+		"watch":        WatchCommand,
+		"stopwatching": StopWatchingCommand,
+		"c":            CodeCommand,
+		"с":            CodeCommand,
+		"helpchange":   TestHelpChange}
 )
-

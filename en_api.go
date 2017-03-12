@@ -1,23 +1,23 @@
 package main
 
 import (
-	"net/http"
-	"container/list"
-	"fmt"
-	"encoding/json"
-	"log"
 	"bytes"
+	"container/list"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
+	"net/http"
 	"net/url"
 	"strings"
-	"errors"
 )
 
 const (
 	//EnAddress = "http://quest.ua/%s"
-	EnAddress = "http://demo.en.cx/%s"
-	LoginEndpoint = "login/signin?json=1"
+	EnAddress         = "http://demo.en.cx/%s"
+	LoginEndpoint     = "login/signin?json=1"
 	LevelInfoEndpoint = "GameEngines/Encounter/Play/%d?json=1"
 	SendCodeEndpoint
 	SendBonusCodeEndpoint
@@ -33,17 +33,17 @@ type EnAPIAuthResponse struct {
 
 func (apiResp *EnAPIAuthResponse) CreateFromResponse(resp *http.Response) error {
 	var (
-		bytes []byte
-		err error
+		buf      []byte
+		err      error
 		respBody map[string]interface{}
 	)
-	bytes, err = ioutil.ReadAll(resp.Body)
+	buf, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	err = json.Unmarshal(bytes, &respBody)
+	err = json.Unmarshal(buf, &respBody)
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (apiResp *EnAPIAuthResponse) CreateFromResponse(resp *http.Response) error 
 	} else {
 		apiResp.Description = ""
 	}
-	apiResp.Result = bytes
+	apiResp.Result = buf
 	apiResp.Cookies = resp.Cookies()
 	apiResp.StatusCode = resp.StatusCode
 
@@ -105,8 +105,8 @@ func parseLevelJson(body io.ReadCloser) (*LevelResponse, error) {
 func (en *EnAPI) Login() (EnAPIAuthResponse, error) {
 	var (
 		authResponse EnAPIAuthResponse
-		err error
-		params url.Values
+		err          error
+		params       url.Values
 	)
 	params = make(url.Values)
 	params.Set("Login", en.login)
@@ -115,9 +115,9 @@ func (en *EnAPI) Login() (EnAPIAuthResponse, error) {
 	authResponse, err = en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), params)
 	if err != nil {
 		log.Print(err)
-		return EnAPIAuthResponse{}, nil
+		return EnAPIAuthResponse{}, err
 	}
-	log.Printf("Successfully logged in on server %q as user %q", EnAddress,en.login)
+	log.Printf("Successfully logged in on server %q as user %q", EnAddress, en.login)
 	return authResponse, err
 }
 
@@ -125,8 +125,8 @@ func (en *EnAPI) GetLevelInfo() (*LevelResponse, error) {
 	//gameUrl := "http://demo.en.cx/GameEngines/Encounter/Play/25733?json=1"
 	var (
 		gameUrl string = fmt.Sprintf(EnAddress, fmt.Sprintf(LevelInfoEndpoint, en.CurrentGameId))
-		lvl *LevelResponse
-		err error
+		lvl     *LevelResponse
+		err     error
 	)
 
 	resp, err := en.Client.Get(gameUrl)
@@ -146,22 +146,22 @@ func (en *EnAPI) GetLevelInfo() (*LevelResponse, error) {
 }
 
 type sendCodeResponse struct {
-
 }
 
-func (en *EnAPI) SendCode(gameId int32, code string) (*LevelResponse, error) {
+func (en *EnAPI) SendCode(code string) (*LevelResponse, error) {
 	var (
-		codeUrl string = fmt.Sprintf(EnAddress, fmt.Sprintf(SendCodeEndpoint, gameId))
-		resp *http.Response
-		body SendCodeRequest
-		lvl *LevelResponse
+		codeUrl  string = fmt.Sprintf(EnAddress, fmt.Sprintf(SendCodeEndpoint, en.CurrentGameId))
+		resp     *http.Response
+		body     SendCodeRequest
+		lvl      *LevelResponse
 		bodyJson []byte
-		err error
+		err      error
 	)
+	fmt.Println(codeUrl)
 	body = SendCodeRequest{
 		codeRequest: codeRequest{
-			LevelId: 249435,
-			LevelNumber: 3},
+			LevelId:     en.CurrentLevel.LevelId,
+			LevelNumber: en.CurrentLevel.Number},
 		LevelAction: code,
 	}
 	bodyJson, err = json.Marshal(body)
@@ -183,4 +183,3 @@ func (en *EnAPI) SendCode(gameId int32, code string) (*LevelResponse, error) {
 func (en *EnAPI) SendBonusCode() {
 
 }
-

@@ -88,6 +88,13 @@ type SectorInfo struct {
 	IsAnswered bool
 }
 
+type ExtendedSectorInfo struct {
+	sectorInfo    *SectorInfo
+	sectorsPassed int8
+	sectorsLeft   int8
+	totalSectors  int8
+}
+
 type LevelSectors []SectorInfo
 
 //
@@ -113,7 +120,8 @@ type LevelBonuses []BonusInfo
 // Level info related types
 //
 type Sequence int8
-const(
+
+const (
 	Linear Sequence = iota
 	Said
 	Random
@@ -153,7 +161,7 @@ type LevelInfo struct {
 	PenaltyHelps         LevelPenaltyHelps
 	Bonuses              LevelBonuses
 	//Messages             []string
-	Sectors              LevelSectors
+	Sectors LevelSectors
 }
 
 type ShortLevelInfo struct {
