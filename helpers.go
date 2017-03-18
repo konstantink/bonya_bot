@@ -3,16 +3,17 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/tucnak/telebot"
+	//"github.com/tucnak/telebot"
 	"gopkg.in/telegram-bot-api.v4"
-	"io"
+	//"io"
 	"log"
-	"net/http"
-	"os"
-	"path"
+	//"net/http"
+	//"os"
+	//"path"
 	"regexp"
 	"strconv"
 	"time"
+	//"io/ioutil"
 )
 
 type EnvConfig struct {
@@ -38,8 +39,16 @@ type Image struct {
 	caption string
 }
 
+func FailOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+		panic(fmt.Sprintf("%s: %s", msg, err))
+	}
+}
+
 func ReplaceCoordinates(text string) string {
 	//fmt.Printf("%v", Coordinate{lon:1.23, lat:0.234})
+	log.Print("Replace coordinates in task")
 	var (
 		re  *regexp.Regexp = regexp.MustCompile("(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
 		mr  [][]string     = re.FindAllStringSubmatch(text, -1)
@@ -62,69 +71,77 @@ func ReplaceCoordinates(text string) string {
 	return text
 }
 
-func ReplaceImages(text string) (string, []Image) {
-	var (
-		re     *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\">")
-		mr     [][]string     = re.FindAllStringSubmatch(text, -1)
-		res    []byte         = make([]byte, len(text))
-		images []Image        = make([]Image, 0)
-	)
-	copy(res, []byte(text))
-	if len(mr) > 0 {
-		for i, item := range re.FindAllStringSubmatch(text, -1) {
-			img := Image{url: item[1], caption: fmt.Sprintf("Картинка #%d", i+1)}
-			res = regexp.MustCompile(item[0]).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", img.caption, img.url)))
-			images = append(images, img)
-		}
-		return string(res), images
+//func ReplaceImages(text string) (string, []Image) {
+//	log.Print("Replace images in task")
+//	var (
+//		re     *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\".*>")
+//		mr     [][]string     = re.FindAllStringSubmatch(text, -1)
+//		res    []byte         = make([]byte, len(text))
+//		images []Image        = make([]Image, 0)
+//	)
+//	copy(res, []byte(text))
+//	if len(mr) > 0 {
+//		for i, item := range re.FindAllStringSubmatch(text, -1) {
+//			img := Image{url: item[1], caption: fmt.Sprintf("Картинка #%d", i+1)}
+//			res = regexp.MustCompile(item[0]).
+//				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", img.caption, img.url)))
+//			images = append(images, img)
+//		}
+//		return string(res), images
+//	}
+//	return text, images
+//}
+
+func BlockTypeToString(typeId int8) string {
+	if typeId == 0 || typeId == 1 {
+		return "Игрок"
 	}
-	return text, images
+	return "Команда"
 }
 
-func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
+func ReplaceImages(text string) string {
+	log.Print("Replace images in task text")
 	var (
-		file *os.File
+		re *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\".*>")
+		mr [][]string     = re.FindAllStringSubmatch(text, -1)
+		result []byte     = make([]byte, len(text))
 	)
-	for _, img := range images {
 
-		resp, err := http.Get(img.url)
-		if err != nil {
-			log.Println("Can't download image:", err)
+	if len(mr) > 0 {
+		copy(result, []byte(text))
+		for i, item := range mr {
+			result = regexp.MustCompile(item[0]).
+				ReplaceAllLiteral(result, []byte(fmt.Sprintf("[Картинка #%d](%s)", i+1, item[1])))
 		}
-
-		filename := fmt.Sprintf("/tmp/%s", path.Base(img.url))
-		fileInfo, err := os.Stat(filename)
-		if err == nil && fileInfo.Size() > 0 {
-			file, err = os.Open(filename)
-		} else {
-			log.Println("Image is not downloaded yet:", err)
-			file, err = os.Create(filename)
-			if err != nil {
-				log.Fatal("Cannot create file:", err)
-				return
-			}
-			// Use io.Copy to just dump the response body to the file. This supports huge files
-			_, err = io.Copy(file, resp.Body)
-			resp.Body.Close()
-			file.Close()
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-		//telebotFile, _ := telebot.NewFile(file.Name())
-		log.Println("Sending message with photo to the channel")
-		//thumbnail := telebot.Thumbnail{File: telebotFile, Width: 120, Height: 120}
-		//photoInfoChan <- &PhotoInfo{Recepient: recepient, Photo: &telebot.Photo{File: telebotFile,
-		//	Thumbnail: thumbnail, Caption: img.caption}, Options: nil}
+		return string(result)
 	}
+	return text
+}
+
+func ExtractImages(text string) (images []Image) {
+	var (
+		re *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\".*>")
+		mr [][]string     = re.FindAllStringSubmatch(text, -1)
+	)
+	images = make([]Image, 0)
+	if len(mr) > 0 {
+		for i, item := range mr {
+			images = append(images, Image{url: item[1], caption: fmt.Sprintf("Картинка #%d", i+1)})
+		}
+	}
+	return
 }
 
 func ReplaceCommonTags(text string) string {
+	log.Print("Replace html tags")
 	var (
-		reBold   *regexp.Regexp = regexp.MustCompile("<b>(.+?)</b>")
+		reBr     *regexp.Regexp = regexp.MustCompile("<br/?>")
+		mrBr     [][]string     = reBr.FindAllStringSubmatch(text, -1)
+		reHr     *regexp.Regexp = regexp.MustCompile("<hr/?>")
+		mrHr     [][]string     = reHr.FindAllStringSubmatch(text, -1)
+		reBold   *regexp.Regexp = regexp.MustCompile("<b/?>(.+?)</b>")
 		mrBold   [][]string     = reBold.FindAllStringSubmatch(text, -1)
-		reItalic *regexp.Regexp = regexp.MustCompile("<i>(.+?)</i>")
+		reItalic *regexp.Regexp = regexp.MustCompile("<i>(?sm:.+)</i>")
 		mrItalic [][]string     = reItalic.FindAllStringSubmatch(text, -1)
 		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color=\"(\\w+)\".*?>(.+?)</font>")
 		mrFont   [][]string     = reFont.FindAllStringSubmatch(text, -1)
@@ -134,7 +151,24 @@ func ReplaceCommonTags(text string) string {
 	)
 
 	copy(res, []byte(text))
-	if len(mrBold) > 0 {
+	if len(mrBr) > 0 {
+		for _, item := range mrBr {
+			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(""))
+		}
+	}
+	if len(mrHr) > 0 {
+		for _, item := range mrHr {
+			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(""))
+		}
+	}
+	if mrFont = reFont.FindAllStringSubmatch(string(res), -1); len(mrFont) > 0 {
+		for _, item := range mrFont {
+			res = regexp.MustCompile(item[0]).
+				ReplaceAllLiteral(res, []byte(fmt.Sprintf("%s", item[2])))
+				//ReplaceAllLiteral(res, []byte(fmt.Sprintf("#%s#%s#", item[1], item[2])))
+		}
+	}
+	if mrBold = reBold.FindAllStringSubmatch(string(res), -1); len(mrBold) > 0 {
 		for _, item := range mrBold {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(fmt.Sprintf("*%s*", item[1])))
 		}
@@ -142,12 +176,6 @@ func ReplaceCommonTags(text string) string {
 	if len(mrItalic) > 0 {
 		for _, item := range mrItalic {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(fmt.Sprintf("_%s_", item[1])))
-		}
-	}
-	if len(mrFont) > 0 {
-		for _, item := range mrFont {
-			res = regexp.MustCompile(item[0]).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("#%s#%s#", item[1], item[2])))
 		}
 	}
 	if len(mrA) > 0 {
@@ -173,17 +201,10 @@ func isNewLevel(oldLevel *LevelInfo, newLevel *LevelInfo) bool {
 	if oldLevel == nil {
 		return true
 	}
+	log.Printf("Check is level new: %d vs %d = %b", oldLevel.LevelId, newLevel.LevelId,
+		oldLevel.LevelId != newLevel.LevelId)
 	return oldLevel.LevelId != newLevel.LevelId
 }
-
-//func IsBotCommand(m *tgbotapi.Message) bool {
-//	for _, entity := range(*m.Entities)  {
-//		if (entity.Type == "bot_command") {
-//			return true
-//		}
-//	}
-//	return false
-//}
 
 func PrettyTimePrint(d time.Duration) (res *bytes.Buffer) {
 	//var correctTime = d*time.Second

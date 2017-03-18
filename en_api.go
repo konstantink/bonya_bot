@@ -10,18 +10,31 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
 const (
 	//EnAddress = "http://quest.ua/%s"
-	EnAddress         = "http://demo.en.cx/%s"
+	EnAddress         = "http://kharkov.en.cx/%s"
 	LoginEndpoint     = "login/signin?json=1"
 	LevelInfoEndpoint = "GameEngines/Encounter/Play/%d?json=1"
 	SendCodeEndpoint
 	SendBonusCodeEndpoint
 )
+
+var ServerError = map[int32]string{
+	1: "Captcha input is required",
+	2: "Incorrect login/password",
+	3: "Incorrect user",
+	4: "IP is blaclisted",
+	5: "Server fault",
+	9: "Brootforce?",
+}
+
+type EnResponse interface {
+	CreateFromResponse(resp *http.Response) error
+}
+
 
 type EnAPIAuthResponse struct {
 	Ok          bool
@@ -50,7 +63,7 @@ func (apiResp *EnAPIAuthResponse) CreateFromResponse(resp *http.Response) error 
 
 	apiResp.Ok = respBody["Error"].(float64) == 0
 	if !apiResp.Ok {
-		apiResp.Description = respBody["Description"].(string)
+		apiResp.Description = ServerError[int32(respBody["Error"].(float64))]
 	} else {
 		apiResp.Description = ""
 	}
@@ -59,6 +72,10 @@ func (apiResp *EnAPIAuthResponse) CreateFromResponse(resp *http.Response) error 
 	apiResp.StatusCode = resp.StatusCode
 
 	return nil
+}
+
+func NewAuthResponse() EnAPIAuthResponse {
+	return EnAPIAuthResponse{}
 }
 
 type EnAPI struct {
@@ -70,19 +87,25 @@ type EnAPI struct {
 	Levels        *list.List   `json:"-"`
 }
 
-func (en *EnAPI) MakeRequest(endpoint string, params url.Values) (EnAPIAuthResponse, error) {
-	var enUrl string = fmt.Sprintf(EnAddress, LoginEndpoint)
+func (en *EnAPI) MakeRequest(endpoint string, payload interface{}, response EnResponse)  error {
+	var (
+		enUrl string = fmt.Sprintf(EnAddress, LoginEndpoint)
+		buf bytes.Buffer
+	)
 
-	resp, err := en.Client.PostForm(enUrl, params)
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		return err
+	}
+	log.Printf("Payload: %s", &buf)
+	resp, err := en.Client.Post(enUrl, "application/json", &buf)
 	if err != nil {
 		fmt.Print("Exit 1")
-		return EnAPIAuthResponse{}, err
+		return err
 	}
 
-	var apiResp EnAPIAuthResponse
-	apiResp.CreateFromResponse(resp)
+	response.CreateFromResponse(resp)
 
-	return apiResp, nil
+	return nil
 }
 
 func parseLevelJson(body io.ReadCloser) (*LevelResponse, error) {
@@ -102,23 +125,29 @@ func parseLevelJson(body io.ReadCloser) (*LevelResponse, error) {
 	return lvl, nil
 }
 
-func (en *EnAPI) Login() (EnAPIAuthResponse, error) {
+func (en *EnAPI) Login()  error {
 	var (
 		authResponse EnAPIAuthResponse
 		err          error
-		params       url.Values
+		params       map[string]string
 	)
-	params = make(url.Values)
-	params.Set("Login", en.login)
-	params.Set("Password", en.password)
+	authResponse = NewAuthResponse()
+	params = make(map[string]string)
+	params["Login"] = en.login
+	params["Password"] = en.password
 
-	authResponse, err = en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), params)
+	err = en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), params, &authResponse)
+	log.Println("Login response: ", authResponse, err)
 	if err != nil {
 		log.Print(err)
-		return EnAPIAuthResponse{}, err
+		return err
+	}
+	if !authResponse.Ok {
+		log.Printf("Failed to login to server: %s", authResponse.Description)
+		return errors.New(authResponse.Description)
 	}
 	log.Printf("Successfully logged in on server %q as user %q", EnAddress, en.login)
-	return authResponse, err
+	return err
 }
 
 func (en *EnAPI) GetLevelInfo() (*LevelResponse, error) {
@@ -141,6 +170,9 @@ func (en *EnAPI) GetLevelInfo() (*LevelResponse, error) {
 	}
 
 	lvl, err = parseLevelJson(resp.Body)
+	if lvl.Level == nil {
+		return lvl, errors.New("No level info")
+	}
 
 	return lvl, err
 }

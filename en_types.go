@@ -1,6 +1,15 @@
 package main
 
-import "time"
+import (
+	"time"
+	"fmt"
+	"log"
+)
+
+type ToChat interface {
+	ToText() string
+}
+
 
 type HelpState int8
 
@@ -20,6 +29,11 @@ type HelpInfo struct {
 	PenaltyHelpState HelpState
 	RemainSeconds    int32
 	PenaltyMessage   string
+}
+
+func (help *HelpInfo) ToText() (result string) {
+	result = fmt.Sprintf(HelpInfoString, help.Number, ReplaceCommonTags(help.HelpText))
+	return
 }
 
 type LevelHelps []HelpInfo
@@ -77,6 +91,16 @@ func (m LevelMixedActions) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 
+func (m MixedActionInfo) ToText() (result string) {
+	log.Println("New MixedAction is added")
+	if m.IsCorrect {
+		result = fmt.Sprintf(CorrectAnswerString, m.Answer, m.Login)
+	} else {
+		result = fmt.Sprintf(IncorrectAnswerString, m.Answer, m.Login)
+	}
+	return
+}
+
 //
 // Sector related types
 //
@@ -93,6 +117,11 @@ type ExtendedSectorInfo struct {
 	sectorsPassed int8
 	sectorsLeft   int8
 	totalSectors  int8
+}
+
+func (esi *ExtendedSectorInfo) ToText() (result string) {
+	result = fmt.Sprintf(SectorInfoString, esi.sectorInfo.Name, esi.sectorsLeft, esi.totalSectors)
+	return
 }
 
 type LevelSectors []SectorInfo
@@ -162,6 +191,29 @@ type LevelInfo struct {
 	Bonuses              LevelBonuses
 	//Messages             []string
 	Sectors LevelSectors
+}
+
+func (li *LevelInfo) ToText() (result string) {
+	var task, block string
+	task = ReplaceCoordinates(li.Tasks[0].TaskText)
+	task = ReplaceImages(task)
+	task = ReplaceCommonTags(task)
+
+	if li.HasAnswerBlockRule {
+		block = fmt.Sprintf("Есть\n" + LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
+			li.AttemptsNumber, li.AttemptsPeriod)
+	} else {
+		block = "Нет"
+	}
+
+	result = fmt.Sprintf(LevelInfoString,
+		li.Number,
+		li.Name,
+		PrettyTimePrint(li.Timeout),
+		PrettyTimePrint(li.TimeoutSecondsRemain),
+		block,
+		task)
+	return
 }
 
 type ShortLevelInfo struct {
