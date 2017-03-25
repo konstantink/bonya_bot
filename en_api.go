@@ -15,7 +15,7 @@ import (
 
 const (
 	//EnAddress = "http://quest.ua/%s"
-	EnAddress         = "http://kharkov.en.cx/%s"
+	EnAddress         = "http://demo.en.cx/%s"
 	LoginEndpoint     = "login/signin?json=1"
 	LevelInfoEndpoint = "GameEngines/Encounter/Play/%d?json=1"
 	SendCodeEndpoint

@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/tucnak/telebot"
+	"io"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-	"path"
-	"io"
 )
 
 //type BotCommand int8
@@ -32,60 +32,16 @@ type PhotoInfo struct {
 	Options   *telebot.SendOptions
 }
 
-//const (
-//	InfoCommand BotCommand = 1 << iota
-//	SetChatIdCommand
-//	WatchCommand
-//	StopWatchingCommand
-//	TestHelpChange
-//)
-
 var (
-	quit                  chan struct{}
-	sendInfoChan          chan *SendInfo
-	newsendInfoChan       chan ToChat
-	photoInfoChan         chan *PhotoInfo
-	levelInfoChan         chan LevelInfo
-	levelChangeChan       chan LevelInfo
-	helpChangeChan        chan HelpInfo
-	sectorChangeChan      chan ExtendedSectorInfo
-	mixedActionChangeChan chan MixedActionInfo
+	quit          chan struct{}
+	sendInfoChan  chan ToChat
+	photoInfoChan chan *PhotoInfo
+	levelInfoChan chan LevelInfo
 
 	mainChat telebot.Chat
 )
 
 // Helpers
-
-func NewSendInfo(recepient telebot.Recipient, text string, options *telebot.SendOptions) *SendInfo {
-	return &SendInfo{
-		Recepient: recepient,
-		Text:      text,
-		Options:   options,
-	}
-}
-
-func SendLevelInfo(recepient telebot.Recipient, level *LevelInfo) {
-	var (
-		//images []Image
-		text, task string
-	)
-	task = ReplaceCoordinates(level.Tasks[0].TaskText)
-	//task, images = ReplaceImages(task)
-	task = ReplaceCommonTags(task)
-
-	text = fmt.Sprintf(LevelInfoString,
-		level.Number,
-		level.Name,
-		PrettyTimePrint(level.Timeout),
-		PrettyTimePrint(level.TimeoutSecondsRemain),
-		task)
-
-	sendInfoChan <- NewSendInfo(recepient, text,
-		&telebot.SendOptions{ParseMode: telebot.ModeMarkdown,
-			DisableWebPagePreview: true})
-
-	//SendImageFromUrl(recepient, images)
-}
 
 func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
 	var (
@@ -155,6 +111,7 @@ func processLevel(recepient telebot.Recipient, en *EnAPI) {
 				break
 			}
 			retries++
+			time.Sleep(time.Second)
 			log.Printf("Attempt #%d. Can't get level info: %s", retries, err)
 			en.Login()
 			continue
@@ -166,7 +123,7 @@ func processLevel(recepient telebot.Recipient, en *EnAPI) {
 		return
 	}
 	en.CurrentLevel = level.Level
-	newsendInfoChan <- en.CurrentLevel
+	sendInfoChan <- en.CurrentLevel
 	SendImageFromUrl(mainChat, ExtractImages(en.CurrentLevel.Tasks[0].TaskText))
 	//SendLevelInfo(recepient, en.CurrentLevel)
 }
@@ -275,7 +232,7 @@ func CheckHelps(oldLevel LevelInfo, newLevel LevelInfo) {
 			if oldLevel.Helps[i].HelpText != newLevel.Helps[i].HelpText {
 				log.Println("New hint is available")
 				//helpChangeChan <- newLevel.Helps[i]
-				newsendInfoChan <- &newLevel.Helps[i]
+				sendInfoChan <- &newLevel.Helps[i]
 			}
 		}
 	}
@@ -289,7 +246,7 @@ func CheckSectors(oldLevel LevelInfo, newLevel LevelInfo) {
 			if oldLevel.Sectors[i].IsAnswered != newLevel.Sectors[i].IsAnswered {
 				log.Println("Sector is closed")
 				//sectorChangeChan <- ExtendedSectorInfo{
-				newsendInfoChan <- &ExtendedSectorInfo{
+				sendInfoChan <- &ExtendedSectorInfo{
 					sectorInfo:    &newLevel.Sectors[i],
 					sectorsLeft:   newLevel.SectorsLeftToClose,
 					sectorsPassed: newLevel.PassedSectorsCount,
@@ -307,7 +264,9 @@ func CheckMixedActions(oldLevel LevelInfo, newLevel LevelInfo) {
 	if len(newLevel.MixedActions) > 0 {
 		if len(oldLevel.MixedActions) == 0 {
 			for _, item := range newLevel.MixedActions {
-				mixedActionChangeChan <- item
+				if item.IsCorrect {
+					sendInfoChan <- item
+				}
 			}
 		} else {
 			lastActionId := oldLevel.MixedActions[0].ActionId
@@ -316,7 +275,9 @@ func CheckMixedActions(oldLevel LevelInfo, newLevel LevelInfo) {
 				if item.ActionId == lastActionId {
 					break
 				}
-				mixedActionChangeChan <- item
+				if item.IsCorrect {
+					sendInfoChan <- item
+				}
 			}
 		}
 	}
@@ -329,31 +290,16 @@ func CheckMixedActions(oldLevel LevelInfo, newLevel LevelInfo) {
 }
 
 func initChannels() {
-	sendInfoChan = make(chan *SendInfo, 10)
-	newsendInfoChan = make(chan ToChat, 10)
+	sendInfoChan = make(chan ToChat, 10)
 	photoInfoChan = make(chan *PhotoInfo, 10)
 	levelInfoChan = make(chan LevelInfo, 10)
-	levelChangeChan = make(chan LevelInfo, 10)
-	helpChangeChan = make(chan HelpInfo, 10)
-	sectorChangeChan = make(chan ExtendedSectorInfo, 10)
-	mixedActionChangeChan = make(chan MixedActionInfo, 10)
 }
 
-func main_() {
-	bot, err := telebot.NewBot(os.Getenv("BONYA_BOT_TOKEN"))
-	fmt.Println(os.Getenv("BONYA_BOT_TOKEN"))
-	if err != nil {
-		log.Fatalln(err)
-	}
+func sendLevelInfo(info ToChat, channel chan ToChat, callback func() string, args ...string) {
+	channel <- info
 
-	messages := make(chan telebot.Message, 100)
-	bot.Listen(messages, 1*time.Second)
-
-	for message := range messages {
-		if message.Text == "/hi" {
-			bot.SendMessage(message.Chat,
-				"Hello, "+message.Sender.FirstName+"!", nil)
-		}
+	if callback != nil {
+		callback()
 	}
 }
 
@@ -368,12 +314,6 @@ func main() {
 	)
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	//defer func() {
-	//	if p := recover(); p != nil {
-	//		log.Println(fmt.Errorf("[main] внутренняя ошибка: %v", p))
-	//	}
-	//}()
 
 	err = envconfig.Process("bonya", &envConfig)
 	FailOnError(err, "Can't read environment variables")
@@ -393,11 +333,8 @@ func main() {
 
 		for {
 			select {
-			case si := <-sendInfoChan:
+			case nsi := <-sendInfoChan:
 				log.Print("Send text to Telegram chat")
-				bot.SendMessage(si.Recepient, si.Text, si.Options)
-			case nsi := <- newsendInfoChan:
-				log.Print("(new) Send text to Telegram chat")
 				bot.SendMessage(mainChat, nsi.ToText(),
 					&telebot.SendOptions{ParseMode: telebot.ModeMarkdown, DisableWebPagePreview: true})
 			case pi := <-photoInfoChan:
@@ -405,24 +342,22 @@ func main() {
 				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
 			case li := <-levelInfoChan:
 				log.Println("Receive level from channel")
-				if isNewLevel(en.CurrentLevel, &li) {
-					log.Println("Level is new")
+				if isNewLevel(en.CurrentLevel, &li){
+					log.Printf("New level #%d", li.Number)
 					en.CurrentLevel = &li
-					levelChangeChan <- li
-					continue
+					sendLevelInfo(&li, sendInfoChan, nil)
 				}
+				//if isNewLevel(en.CurrentLevel, &li) {
+				//	log.Println("Level is new")
+				//	en.CurrentLevel = &li
+				//	sendInfoChan <- &li
+				//	SendImageFromUrl(mainChat, ExtractImages(li.Tasks[0].TaskText))
+				//	continue
+				//}
 				go CheckHelps(*en.CurrentLevel, li)
 				go CheckMixedActions(*en.CurrentLevel, li)
 				go CheckSectors(*en.CurrentLevel, li)
 				en.CurrentLevel = &li
-			case lc := <-levelChangeChan:
-				newsendInfoChan <- &lc
-				SendImageFromUrl(mainChat, ExtractImages(lc.Tasks[0].TaskText))
-			case mai := <-mixedActionChangeChan:
-				if mai.IsCorrect{
-					newsendInfoChan <- mai
-				}
-				//sendInfoChan <- &SendInfo{Recepient: mainChat, Text: text, Options: &telebot.SendOptions{ParseMode: telebot.ModeMarkdown}}
 			}
 		}
 	}()
@@ -433,7 +368,7 @@ func main() {
 		login:         envConfig.User,
 		password:      envConfig.Password,
 		Client:        &http.Client{Jar: jar},
-		CurrentGameId: 57968,
+		CurrentGameId: 25733,
 		CurrentLevel:  nil,
 		Levels:        list.New()}
 	en.Login()
@@ -442,7 +377,6 @@ func main() {
 	updates = make(chan telebot.Message, 50)
 	bot.Listen(updates, 30*time.Second)
 
-	////for update = range updates {
 	for {
 		select {
 		case update = <-updates:
@@ -460,8 +394,3 @@ func main() {
 	}
 
 }
-
-// Send photo
-//file, _ := telebot.NewFile("/tmp/Screen32Shot322016-09-0632at3216.47.23.png")
-//bot.SendPhoto(update.Chat, &telebot.Photo{File: file,
-//Thumbnail: telebot.Thumbnail{File: file, Width: 120, Height: 120}, Caption: "Photo"}, nil)

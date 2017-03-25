@@ -136,49 +136,43 @@ func ReplaceCommonTags(text string) string {
 	log.Print("Replace html tags")
 	var (
 		reBr     *regexp.Regexp = regexp.MustCompile("<br/?>")
-		mrBr     [][]string     = reBr.FindAllStringSubmatch(text, -1)
 		reHr     *regexp.Regexp = regexp.MustCompile("<hr/?>")
-		mrHr     [][]string     = reHr.FindAllStringSubmatch(text, -1)
 		reBold   *regexp.Regexp = regexp.MustCompile("<b/?>(.+?)</b>")
-		mrBold   [][]string     = reBold.FindAllStringSubmatch(text, -1)
-		reItalic *regexp.Regexp = regexp.MustCompile("<i>(?sm:.+)</i>")
-		mrItalic [][]string     = reItalic.FindAllStringSubmatch(text, -1)
+		reItalic *regexp.Regexp = regexp.MustCompile("<i>(.+)</i>")
 		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color=\"(\\w+)\".*?>(.+?)</font>")
-		mrFont   [][]string     = reFont.FindAllStringSubmatch(text, -1)
 		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\"(.+?)\".*?>(.+?)</a>")
-		mrA      [][]string     = reA.FindAllStringSubmatch(text, -1)
 		res      []byte         = make([]byte, len(text))
 	)
 
 	copy(res, []byte(text))
-	if len(mrBr) > 0 {
+	if mrBr := reBr.FindAllStringSubmatch(text, -1); len(mrBr) > 0 {
 		for _, item := range mrBr {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(""))
 		}
 	}
-	if len(mrHr) > 0 {
+	if mrHr := reHr.FindAllStringSubmatch(res, -1); len(mrHr) > 0 {
 		for _, item := range mrHr {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(""))
 		}
 	}
-	if mrFont = reFont.FindAllStringSubmatch(string(res), -1); len(mrFont) > 0 {
+	if mrFont := reFont.FindAllStringSubmatch(string(res), -1); len(mrFont) > 0 {
 		for _, item := range mrFont {
 			res = regexp.MustCompile(item[0]).
 				ReplaceAllLiteral(res, []byte(fmt.Sprintf("%s", item[2])))
 				//ReplaceAllLiteral(res, []byte(fmt.Sprintf("#%s#%s#", item[1], item[2])))
 		}
 	}
-	if mrBold = reBold.FindAllStringSubmatch(string(res), -1); len(mrBold) > 0 {
+	if mrBold := reBold.FindAllStringSubmatch(string(res), -1); len(mrBold) > 0 {
 		for _, item := range mrBold {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(fmt.Sprintf("*%s*", item[1])))
 		}
 	}
-	if len(mrItalic) > 0 {
+	if mrItalic := reItalic.FindAllStringSubmatch(string(res), -1); len(mrItalic) > 0 {
 		for _, item := range mrItalic {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(fmt.Sprintf("_%s_", item[1])))
 		}
 	}
-	if len(mrA) > 0 {
+	if mrA := reA.FindAllStringSubmatch(text, -1); len(mrA) > 0 {
 		for _, item := range mrA {
 			res = regexp.MustCompile(item[0]).
 				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", item[2], item[1])))
