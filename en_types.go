@@ -179,8 +179,8 @@ type LevelInfo struct {
 	HasAnswerBlockRule   bool
 	BlockDuration        time.Duration
 	BlockTargetId        int8
-	AttemptsNumber       int8
-	AttemptsPeriod       time.Duration
+	AttemtsNumber        int8
+	AttemtsPeriod        time.Duration
 	RequiredSectorsCount int8
 	PassedSectorsCount   int8
 	SectorsLeftToClose   int8
@@ -200,8 +200,8 @@ func (li *LevelInfo) ToText() (result string) {
 	task = ReplaceCommonTags(task)
 
 	if li.HasAnswerBlockRule {
-		block = fmt.Sprintf("Есть\n" + LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
-			li.AttemptsNumber, li.AttemptsPeriod)
+		block = fmt.Sprintf("Есть" + LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
+			li.AttemtsNumber, li.AttemtsPeriod)
 	} else {
 		block = "Нет"
 	}
