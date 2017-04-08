@@ -150,7 +150,7 @@ func ReplaceCommonTags(text string) string {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(""))
 		}
 	}
-	if mrHr := reHr.FindAllStringSubmatch(res, -1); len(mrHr) > 0 {
+	if mrHr := reHr.FindAllStringSubmatch(string(res), -1); len(mrHr) > 0 {
 		for _, item := range mrHr {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(""))
 		}
@@ -172,7 +172,7 @@ func ReplaceCommonTags(text string) string {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(fmt.Sprintf("_%s_", item[1])))
 		}
 	}
-	if mrA := reA.FindAllStringSubmatch(text, -1); len(mrA) > 0 {
+	if mrA := reA.FindAllStringSubmatch(string(res), -1); len(mrA) > 0 {
 		for _, item := range mrA {
 			res = regexp.MustCompile(item[0]).
 				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", item[2], item[1])))

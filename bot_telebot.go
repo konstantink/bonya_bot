@@ -365,10 +365,10 @@ func main() {
 	jar, _ := cookiejar.New(nil)
 	log.Println(envConfig.User, envConfig.Password)
 	en = EnAPI{
-		login:         envConfig.User,
-		password:      envConfig.Password,
+		Username:         envConfig.User,
+		Password:      envConfig.Password,
 		Client:        &http.Client{Jar: jar},
-		CurrentGameId: 25733,
+		CurrentGameID: 25733,
 		CurrentLevel:  nil,
 		Levels:        list.New()}
 	en.Login()
