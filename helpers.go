@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	//"github.com/tucnak/telebot"
-	"gopkg.in/telegram-bot-api.v4"
+	//"gopkg.in/telegram-bot-api.v4"
 	//"io"
 	"log"
 	//"net/http"
@@ -182,14 +182,14 @@ func ReplaceCommonTags(text string) string {
 	return string(res)
 }
 
-func GetBotCommandEntity(m *tgbotapi.Message) *tgbotapi.MessageEntity {
-	for _, entity := range *m.Entities {
-		if entity.Type == "bot_command" {
-			return &entity
-		}
-	}
-	return nil
-}
+//func GetBotCommandEntity(m *tgbotapi.Message) *tgbotapi.MessageEntity {
+//	for _, entity := range *m.Entities {
+//		if entity.Type == "bot_command" {
+//			return &entity
+//		}
+//	}
+//	return nil
+//}
 
 func isNewLevel(oldLevel *LevelInfo, newLevel *LevelInfo) bool {
 	if oldLevel == nil {

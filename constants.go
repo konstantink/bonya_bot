@@ -40,10 +40,14 @@ const (
 *Текст:* %s`
 	//MixedActionInfoString = `
 	//*%s* вбил код *%q*.`
-	CorrectAnswerString   = `*+* %q *%s*`
-	IncorrectAnswerString = `*-* %q *%s*`
-	SectorInfoString      = `
-	Сектор *%q* закрыт. Осталось %d из %d`
+	//CorrectAnswerString   = `*+* %q *%s*`
+	CorrectAnswerString   = "*+* %q\n"
+	//IncorrectAnswerString = `*-* %q *%s*`
+	IncorrectAnswerString = "*-* %q\n"
+	NotSentAnswersString  = "*не отправлены:* %q"
+	//SectorInfoString      = "Сектор *%q* закрыт. Осталось %d из %d"
+	SectorInfoString      = "Осталось %d из %d"
+
 )
 
 var (

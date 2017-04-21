@@ -96,9 +96,19 @@ func (apiResp *EnAPIAuthResponse) createFromResponse(resp *http.Response) error 
 	return nil
 }
 
-// NewAuthResponse creates new instance of EnAPIAuthResponse
-func NewAuthResponse() *EnAPIAuthResponse {
-	return &EnAPIAuthResponse{}
+// NewAuthResponse creates new instance of EnAPIAuthResponse from the http.Response
+// that comes from the EN server, or empty instance if nil is passed
+func NewAuthResponse(response *http.Response) *EnAPIAuthResponse {
+	var authResponse = &EnAPIAuthResponse{}
+
+	if response == nil{
+		return authResponse
+	}
+
+	if err := authResponse.createFromResponse(response); err != nil {
+		log.Printf("Problem while creating auth response object: %q", err)
+	}
+	return authResponse
 }
 
 // EnAPI represents object that contains useful data to operate with
@@ -112,25 +122,20 @@ type EnAPI struct {
 	Levels        *list.List   `json:"-"`
 }
 
-func (en *EnAPI) makeRequest(endpoint string, payload interface{}, response enResponse) error {
-	var (
-		enURL = fmt.Sprintf(EnAddress, LoginEndpoint)
-		buf   bytes.Buffer
-	)
+func (en *EnAPI) makeRequest(url string, payload interface{}) (*http.Response, error) {
+	var buf   bytes.Buffer
 
 	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
-		return err
+		return nil, err
 	}
 	log.Printf("Payload: %s", &buf)
-	resp, err := en.Client.Post(enURL, "application/json", &buf)
+	resp, err := en.Client.Post(url, "application/json", &buf)
 	if err != nil {
-		fmt.Print("Exit 1")
-		return err
+		fmt.Printf("Failed to post request: %q", err)
+		return nil, err
 	}
 
-	response.createFromResponse(resp)
-
-	return nil
+	return resp, nil
 }
 
 func parseLevelJSON(body io.ReadCloser) (*LevelResponse, error) {
@@ -155,11 +160,12 @@ func parseLevelJSON(body io.ReadCloser) (*LevelResponse, error) {
 func (en *EnAPI) Login() error {
 	var (
 		authResponse *EnAPIAuthResponse
+		resp         *http.Response
 		err          error
 	)
-	authResponse = NewAuthResponse()
 
-	err = en.makeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), en, authResponse)
+	resp, err = en.makeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), en)
+	authResponse = NewAuthResponse(resp)
 	log.Println("Login response: ", authResponse, err)
 	if err != nil {
 		log.Print(err)
@@ -175,27 +181,28 @@ func (en *EnAPI) Login() error {
 
 // GetLevelInfo returns pointer to the LevelResponse object
 // with level information or empty object and the occurred error
-func (en *EnAPI) GetLevelInfo() (*LevelResponse, error) {
+func (en *EnAPI) GetLevelInfo() (*LevelInfo, error) {
 	//gameUrl := "http://demo.en.cx/GameEngines/Encounter/Play/25733?json=1"
 	var (
 		gameURL = fmt.Sprintf(EnAddress, fmt.Sprintf(LevelInfoEndpoint, en.CurrentGameID))
-		lvl     *LevelResponse
+		lvl     *LevelInfo
 		err     error
 	)
 
 	resp, err := en.Client.Get(gameURL)
 	if err != nil {
 		log.Println("Error on GET request:", err)
-		return &LevelResponse{}, err
+		return NewLevelInfo(nil), err
 	}
 
 	if strings.HasPrefix(resp.Header["Content-Type"][0], "text/html") {
 		log.Println("Incorrect cookies, need to re-login")
-		return &LevelResponse{}, errors.New("Incorrect cookies, need to re-login")
+		return NewLevelInfo(nil), errors.New("Incorrect cookies, need to re-login")
 	}
 
-	lvl, err = parseLevelJSON(resp.Body)
-	if lvl.Level == nil {
+	lvl = NewLevelInfo(resp)
+	//lvl, err = parseLevelJSON(resp.Body)
+	if lvl == nil {
 		return lvl, errors.New("No level info")
 	}
 
@@ -207,35 +214,38 @@ type sendCodeResponse struct {
 
 // SendCode sends post request to EN server, returns level information
 // or error
-func (en *EnAPI) SendCode(code string) (*LevelResponse, error) {
+func (en *EnAPI) SendCode(code string) (*LevelInfo, error) {
 	var (
 		codeURL  = fmt.Sprintf(EnAddress, fmt.Sprintf(SendCodeEndpoint, en.CurrentGameID))
 		resp     *http.Response
 		body     SendCodeRequest
-		lvl      *LevelResponse
-		bodyJSON []byte
+		lvl      *LevelInfo
+		//bodyJSON []byte
 		err      error
 	)
-	fmt.Println(codeURL)
+
 	body = SendCodeRequest{
 		codeRequest: codeRequest{
 			LevelId:     en.CurrentLevel.LevelId,
 			LevelNumber: en.CurrentLevel.Number},
 		LevelAction: code,
 	}
-	bodyJSON, err = json.Marshal(body)
+
+	resp, err = en.makeRequest(codeURL, body)
+	//bodyJSON, err = json.Marshal(body)
 	if err != nil {
 		log.Println("Error while serializing body:", err)
 		return nil, err
 	}
+	//
+	//resp, err = en.Client.Post(codeURL, "application/json", bytes.NewBuffer(bodyJSON))
+	//if err != nil {
+	//	log.Println("Error while preforming request:", err)
+	//	return nil, err
+	//}
 
-	resp, err = en.Client.Post(codeURL, "application/json", bytes.NewBuffer(bodyJSON))
-	if err != nil {
-		log.Println("Error while preforming request:", err)
-		return nil, err
-	}
-
-	lvl, err = parseLevelJSON(resp.Body)
+	lvl = NewLevelInfo(resp)
+	//lvl, err = parseLevelJSON(resp.Body)
 	return lvl, err
 }
 

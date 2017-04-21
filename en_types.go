@@ -4,6 +4,10 @@ import (
 	"time"
 	"fmt"
 	"log"
+	"net/http"
+	"encoding/json"
+	"io/ioutil"
+	"strings"
 )
 
 type ToChat interface {
@@ -193,6 +197,24 @@ type LevelInfo struct {
 	Sectors LevelSectors
 }
 
+func NewLevelInfo(response *http.Response) *LevelInfo {
+	var lvlResponse = &LevelResponse{}
+
+	if response == nil{
+		return &LevelInfo{}
+	}
+
+	body, _ := ioutil.ReadAll(response.Body)
+
+	err := json.Unmarshal(body, lvlResponse)
+	if err != nil {
+		log.Println("ERROR: failed to parse level json:", err)
+		return &LevelInfo{}
+	}
+
+	return lvlResponse.Level
+}
+
 func (li *LevelInfo) ToText() (result string) {
 	var task, block string
 	task = ReplaceCoordinates(li.Tasks[0].TaskText)
@@ -235,6 +257,23 @@ func (l *LevelsList) Len() int {
 type LevelResponse struct {
 	Level  *LevelInfo
 	Levels *LevelsList
+}
+
+type Codes struct {
+	correct, incorrect, notSent []string
+}
+
+func (codes *Codes) ToText() (result string) {
+	if len(codes.correct) > 0 {
+		result = fmt.Sprintf(CorrectAnswerString, strings.Join(codes.correct, ", "))
+	}
+	if len(codes.incorrect) > 0 {
+		result += fmt.Sprintf(IncorrectAnswerString, strings.Join(codes.incorrect, ", "))
+	}
+	if len(codes.notSent) > 0 {
+		result += fmt.Sprintf(NotSentAnswersString, strings.Join(codes.notSent, ", "))
+	}
+	return
 }
 
 //
