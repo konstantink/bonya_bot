@@ -179,10 +179,10 @@ type some struct {
 
 }
 
-func sendCode(en *EnAPI, codesToSend []string) {
+func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
 	var (
 		mu    sync.RWMutex
-		codes Codes
+		codes Codes = Codes{replyTo: replyTo}
 	)
 
 	mu.Lock()
@@ -263,7 +263,7 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 		setChat(m.Chat)
 	case CodeCommand:
 		re := regexp.MustCompile("\\s*,\\s*")
-		sendCode(en, re.Split(args, -1))
+		sendCode(en, re.Split(args, -1), *m)
 	}
 }
 
@@ -381,7 +381,9 @@ func main() {
 			case nsi := <-sendInfoChan:
 				log.Print("Send text to Telegram chat")
 				bot.SendMessage(mainChat, nsi.ToText(),
-					&telebot.SendOptions{ParseMode: telebot.ModeMarkdown, DisableWebPagePreview: true})
+					&telebot.SendOptions{ParseMode: telebot.ModeMarkdown,
+						DisableWebPagePreview: true,
+						ReplyTo: nsi.ReplyTo()})
 			case pi := <-photoInfoChan:
 				log.Print("Send images to Telegram chat")
 				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)

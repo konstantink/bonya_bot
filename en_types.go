@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"strings"
+	"github.com/tucnak/telebot"
 )
 
 type ToChat interface {
 	ToText() string
+	ReplyTo() telebot.Message
 }
 
 
@@ -37,6 +39,10 @@ type HelpInfo struct {
 
 func (help *HelpInfo) ToText() (result string) {
 	result = fmt.Sprintf(HelpInfoString, help.Number, ReplaceCommonTags(help.HelpText))
+	return
+}
+
+func (help *HelpInfo) ReplyTo() (message telebot.Message) {
 	return
 }
 
@@ -105,6 +111,10 @@ func (m MixedActionInfo) ToText() (result string) {
 	return
 }
 
+func (m MixedActionInfo) ReplyTo() (message telebot.Message) {
+	return
+}
+
 //
 // Sector related types
 //
@@ -125,6 +135,10 @@ type ExtendedSectorInfo struct {
 
 func (esi *ExtendedSectorInfo) ToText() (result string) {
 	result = fmt.Sprintf(SectorInfoString, esi.sectorInfo.Name, esi.sectorsLeft, esi.totalSectors)
+	return
+}
+
+func (esi *ExtendedSectorInfo) ReplyTo() (message telebot.Message) {
 	return
 }
 
@@ -238,6 +252,10 @@ func (li *LevelInfo) ToText() (result string) {
 	return
 }
 
+func (li *LevelInfo) ReplyTo() (message telebot.Message){
+	return
+}
+
 type ShortLevelInfo struct {
 	LevelId     int32
 	LevelNumber int8
@@ -260,6 +278,7 @@ type LevelResponse struct {
 }
 
 type Codes struct {
+	replyTo telebot.Message
 	correct, incorrect, notSent []string
 }
 
@@ -274,6 +293,10 @@ func (codes *Codes) ToText() (result string) {
 		result += fmt.Sprintf(NotSentAnswersString, strings.Join(codes.notSent, ", "))
 	}
 	return
+}
+
+func (codes *Codes) ReplyTo() telebot.Message {
+	return codes.replyTo
 }
 
 //
