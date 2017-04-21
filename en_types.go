@@ -1,6 +1,19 @@
 package main
 
-import "time"
+import (
+	"time"
+	"fmt"
+	"log"
+	"net/http"
+	"encoding/json"
+	"io/ioutil"
+	"strings"
+)
+
+type ToChat interface {
+	ToText() string
+}
+
 
 type HelpState int8
 
@@ -20,6 +33,11 @@ type HelpInfo struct {
 	PenaltyHelpState HelpState
 	RemainSeconds    int32
 	PenaltyMessage   string
+}
+
+func (help *HelpInfo) ToText() (result string) {
+	result = fmt.Sprintf(HelpInfoString, help.Number, ReplaceCommonTags(help.HelpText))
+	return
 }
 
 type LevelHelps []HelpInfo
@@ -77,6 +95,16 @@ func (m LevelMixedActions) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 
+func (m MixedActionInfo) ToText() (result string) {
+	log.Println("New MixedAction is added")
+	if m.IsCorrect {
+		result = fmt.Sprintf(CorrectAnswerString, m.Answer, m.Login)
+	} else {
+		result = fmt.Sprintf(IncorrectAnswerString, m.Answer, m.Login)
+	}
+	return
+}
+
 //
 // Sector related types
 //
@@ -86,6 +114,18 @@ type SectorInfo struct {
 	Name       string
 	Answer     map[string]interface{}
 	IsAnswered bool
+}
+
+type ExtendedSectorInfo struct {
+	sectorInfo    *SectorInfo
+	sectorsPassed int8
+	sectorsLeft   int8
+	totalSectors  int8
+}
+
+func (esi *ExtendedSectorInfo) ToText() (result string) {
+	result = fmt.Sprintf(SectorInfoString, esi.sectorInfo.Name, esi.sectorsLeft, esi.totalSectors)
+	return
 }
 
 type LevelSectors []SectorInfo
@@ -113,7 +153,8 @@ type LevelBonuses []BonusInfo
 // Level info related types
 //
 type Sequence int8
-const(
+
+const (
 	Linear Sequence = iota
 	Said
 	Random
@@ -142,8 +183,8 @@ type LevelInfo struct {
 	HasAnswerBlockRule   bool
 	BlockDuration        time.Duration
 	BlockTargetId        int8
-	AttemptsNumber       int8
-	AttemptsPeriod       time.Duration
+	AttemtsNumber        int8
+	AttemtsPeriod        time.Duration
 	RequiredSectorsCount int8
 	PassedSectorsCount   int8
 	SectorsLeftToClose   int8
@@ -153,7 +194,48 @@ type LevelInfo struct {
 	PenaltyHelps         LevelPenaltyHelps
 	Bonuses              LevelBonuses
 	//Messages             []string
-	Sectors              LevelSectors
+	Sectors LevelSectors
+}
+
+func NewLevelInfo(response *http.Response) *LevelInfo {
+	var lvlResponse = &LevelResponse{}
+
+	if response == nil{
+		return &LevelInfo{}
+	}
+
+	body, _ := ioutil.ReadAll(response.Body)
+
+	err := json.Unmarshal(body, lvlResponse)
+	if err != nil {
+		log.Println("ERROR: failed to parse level json:", err)
+		return &LevelInfo{}
+	}
+
+	return lvlResponse.Level
+}
+
+func (li *LevelInfo) ToText() (result string) {
+	var task, block string
+	task = ReplaceCoordinates(li.Tasks[0].TaskText)
+	task = ReplaceImages(task)
+	task = ReplaceCommonTags(task)
+
+	if li.HasAnswerBlockRule {
+		block = fmt.Sprintf("Есть" + LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
+			li.AttemtsNumber, li.AttemtsPeriod)
+	} else {
+		block = "Нет"
+	}
+
+	result = fmt.Sprintf(LevelInfoString,
+		li.Number,
+		li.Name,
+		PrettyTimePrint(li.Timeout),
+		PrettyTimePrint(li.TimeoutSecondsRemain),
+		block,
+		task)
+	return
 }
 
 type ShortLevelInfo struct {
@@ -175,6 +257,23 @@ func (l *LevelsList) Len() int {
 type LevelResponse struct {
 	Level  *LevelInfo
 	Levels *LevelsList
+}
+
+type Codes struct {
+	correct, incorrect, notSent []string
+}
+
+func (codes *Codes) ToText() (result string) {
+	if len(codes.correct) > 0 {
+		result = fmt.Sprintf(CorrectAnswerString, strings.Join(codes.correct, ", "))
+	}
+	if len(codes.incorrect) > 0 {
+		result += fmt.Sprintf(IncorrectAnswerString, strings.Join(codes.incorrect, ", "))
+	}
+	if len(codes.notSent) > 0 {
+		result += fmt.Sprintf(NotSentAnswersString, strings.Join(codes.notSent, ", "))
+	}
+	return
 }
 
 //

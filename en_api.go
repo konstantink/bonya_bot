@@ -1,28 +1,63 @@
 package main
 
 import (
-	"net/http"
-	"container/list"
-	"fmt"
-	"encoding/json"
-	"log"
 	"bytes"
+	"container/list"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
-	"net/url"
+	"log"
+	"net/http"
 	"strings"
-	"errors"
 )
 
 const (
 	//EnAddress = "http://quest.ua/%s"
+	// TODO: initially should be read from environment
+	// EnAddress server address
 	EnAddress = "http://demo.en.cx/%s"
+
+	// LoginEndpoint login endpoint
 	LoginEndpoint = "login/signin?json=1"
+
+	// LevelInfoEndpoint level information endpoint
 	LevelInfoEndpoint = "GameEngines/Encounter/Play/%d?json=1"
 	SendCodeEndpoint
-	SendBonusCodeEndpoint
+	// SendBonusCodeEndpoint
 )
 
+const (
+	captcha = iota + 1
+	incorrectLogin
+	incorrectUser
+	ipBlacklisted
+	serverFault
+	bruteForce
+)
+
+// ServerError map with possible login errors from EN server
+var ServerError = map[int32]string{
+	captcha:        "Captcha input is required",
+	incorrectLogin: "Incorrect login/password",
+	incorrectUser:  "Incorrect user",
+	ipBlacklisted:  "IP is blaclisted",
+	serverFault:    "Server fault",
+	bruteForce:     "Brootforce?",
+}
+
+type enResponse interface {
+	createFromResponse(resp *http.Response) error
+}
+
+// EnAPIAuthResponse struct that represents the response from EN serverFault
+// after authorisation.
+// `Ok` - indicates the success of the authorisation request
+// `Cookies` - cookies with session information, should be used for all further requests
+// `Result` - json with the Result
+// `StatusCode` - http status code
+// `Description` - error string in case request was not successful
 type EnAPIAuthResponse struct {
 	Ok          bool
 	Cookies     []*http.Cookie
@@ -31,61 +66,79 @@ type EnAPIAuthResponse struct {
 	Description string
 }
 
-func (apiResp *EnAPIAuthResponse) CreateFromResponse(resp *http.Response) error {
+func (apiResp *EnAPIAuthResponse) createFromResponse(resp *http.Response) error {
 	var (
-		bytes []byte
-		err error
+		buf      []byte
+		err      error
 		respBody map[string]interface{}
 	)
-	bytes, err = ioutil.ReadAll(resp.Body)
+	buf, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	err = json.Unmarshal(bytes, &respBody)
+	err = json.Unmarshal(buf, &respBody)
 	if err != nil {
 		return err
 	}
 
 	apiResp.Ok = respBody["Error"].(float64) == 0
 	if !apiResp.Ok {
-		apiResp.Description = respBody["Description"].(string)
+		apiResp.Description = ServerError[int32(respBody["Error"].(float64))]
 	} else {
 		apiResp.Description = ""
 	}
-	apiResp.Result = bytes
+	apiResp.Result = buf
 	apiResp.Cookies = resp.Cookies()
 	apiResp.StatusCode = resp.StatusCode
 
 	return nil
 }
 
+// NewAuthResponse creates new instance of EnAPIAuthResponse from the http.Response
+// that comes from the EN server, or empty instance if nil is passed
+func NewAuthResponse(response *http.Response) *EnAPIAuthResponse {
+	var authResponse = &EnAPIAuthResponse{}
+
+	if response == nil{
+		return authResponse
+	}
+
+	if err := authResponse.createFromResponse(response); err != nil {
+		log.Printf("Problem while creating auth response object: %q", err)
+	}
+	return authResponse
+}
+
+// EnAPI represents object that contains useful data to operate with
+// EN server and information about current game state
 type EnAPI struct {
-	login         string       `json:"Login"`
-	password      string       `json:"Password"`
+	Username      string       `json:"Login"`
+	Password      string       `json:"Password"`
 	Client        *http.Client `json:"-"`
-	CurrentGameId int32        `json:"-"`
+	CurrentGameID int32        `json:"-"`
 	CurrentLevel  *LevelInfo   `json:"-"`
 	Levels        *list.List   `json:"-"`
 }
 
-func (en *EnAPI) MakeRequest(endpoint string, params url.Values) (EnAPIAuthResponse, error) {
-	var enUrl string = fmt.Sprintf(EnAddress, LoginEndpoint)
+func (en *EnAPI) makeRequest(url string, payload interface{}) (*http.Response, error) {
+	var buf   bytes.Buffer
 
-	resp, err := en.Client.PostForm(enUrl, params)
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		return nil, err
+	}
+	log.Printf("Payload: %s", &buf)
+	resp, err := en.Client.Post(url, "application/json", &buf)
 	if err != nil {
-		fmt.Print("Exit 1")
-		return EnAPIAuthResponse{}, err
+		fmt.Printf("Failed to post request: %q", err)
+		return nil, err
 	}
 
-	var apiResp EnAPIAuthResponse
-	apiResp.CreateFromResponse(resp)
-
-	return apiResp, nil
+	return resp, nil
 }
 
-func parseLevelJson(body io.ReadCloser) (*LevelResponse, error) {
+func parseLevelJSON(body io.ReadCloser) (*LevelResponse, error) {
 	var (
 		lvl *LevelResponse
 		err error
@@ -102,85 +155,102 @@ func parseLevelJson(body io.ReadCloser) (*LevelResponse, error) {
 	return lvl, nil
 }
 
-func (en *EnAPI) Login() (EnAPIAuthResponse, error) {
+// Login returns an error in case login to the EN server failed,
+// otherwise returns nil
+func (en *EnAPI) Login() error {
 	var (
-		authResponse EnAPIAuthResponse
-		err error
-		params url.Values
+		authResponse *EnAPIAuthResponse
+		resp         *http.Response
+		err          error
 	)
-	params = make(url.Values)
-	params.Set("Login", en.login)
-	params.Set("Password", en.password)
 
-	authResponse, err = en.MakeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), params)
+	resp, err = en.makeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), en)
+	authResponse = NewAuthResponse(resp)
+	log.Println("Login response: ", authResponse, err)
 	if err != nil {
 		log.Print(err)
-		return EnAPIAuthResponse{}, nil
+		return err
 	}
-	log.Printf("Successfully logged in on server %q as user %q", EnAddress,en.login)
-	return authResponse, err
+	if !authResponse.Ok {
+		log.Printf("Failed to login to server: %s", authResponse.Description)
+		return errors.New(authResponse.Description)
+	}
+	log.Printf("Successfully logged in on server %q as user %q", EnAddress, en.Username)
+	return err
 }
 
-func (en *EnAPI) GetLevelInfo() (*LevelResponse, error) {
+// GetLevelInfo returns pointer to the LevelResponse object
+// with level information or empty object and the occurred error
+func (en *EnAPI) GetLevelInfo() (*LevelInfo, error) {
 	//gameUrl := "http://demo.en.cx/GameEngines/Encounter/Play/25733?json=1"
 	var (
-		gameUrl string = fmt.Sprintf(EnAddress, fmt.Sprintf(LevelInfoEndpoint, en.CurrentGameId))
-		lvl *LevelResponse
-		err error
+		gameURL = fmt.Sprintf(EnAddress, fmt.Sprintf(LevelInfoEndpoint, en.CurrentGameID))
+		lvl     *LevelInfo
+		err     error
 	)
 
-	resp, err := en.Client.Get(gameUrl)
+	resp, err := en.Client.Get(gameURL)
 	if err != nil {
 		log.Println("Error on GET request:", err)
-		return &LevelResponse{}, err
+		return NewLevelInfo(nil), err
 	}
 
 	if strings.HasPrefix(resp.Header["Content-Type"][0], "text/html") {
 		log.Println("Incorrect cookies, need to re-login")
-		return &LevelResponse{}, errors.New("Incorrect cookies, need to re-login")
+		return NewLevelInfo(nil), errors.New("Incorrect cookies, need to re-login")
 	}
 
-	lvl, err = parseLevelJson(resp.Body)
+	lvl = NewLevelInfo(resp)
+	//lvl, err = parseLevelJSON(resp.Body)
+	if lvl == nil {
+		return lvl, errors.New("No level info")
+	}
 
 	return lvl, err
 }
 
 type sendCodeResponse struct {
-
 }
 
-func (en *EnAPI) SendCode(gameId int32, code string) (*LevelResponse, error) {
+// SendCode sends post request to EN server, returns level information
+// or error
+func (en *EnAPI) SendCode(code string) (*LevelInfo, error) {
 	var (
-		codeUrl string = fmt.Sprintf(EnAddress, fmt.Sprintf(SendCodeEndpoint, gameId))
-		resp *http.Response
-		body SendCodeRequest
-		lvl *LevelResponse
-		bodyJson []byte
-		err error
+		codeURL  = fmt.Sprintf(EnAddress, fmt.Sprintf(SendCodeEndpoint, en.CurrentGameID))
+		resp     *http.Response
+		body     SendCodeRequest
+		lvl      *LevelInfo
+		//bodyJSON []byte
+		err      error
 	)
+
 	body = SendCodeRequest{
 		codeRequest: codeRequest{
-			LevelId: 249435,
-			LevelNumber: 3},
+			LevelId:     en.CurrentLevel.LevelId,
+			LevelNumber: en.CurrentLevel.Number},
 		LevelAction: code,
 	}
-	bodyJson, err = json.Marshal(body)
+
+	resp, err = en.makeRequest(codeURL, body)
+	//bodyJSON, err = json.Marshal(body)
 	if err != nil {
 		log.Println("Error while serializing body:", err)
 		return nil, err
 	}
+	//
+	//resp, err = en.Client.Post(codeURL, "application/json", bytes.NewBuffer(bodyJSON))
+	//if err != nil {
+	//	log.Println("Error while preforming request:", err)
+	//	return nil, err
+	//}
 
-	resp, err = en.Client.Post(codeUrl, "application/json", bytes.NewBuffer(bodyJson))
-	if err != nil {
-		log.Println("Error while preforming request:", err)
-		return nil, err
-	}
-
-	lvl, err = parseLevelJson(resp.Body)
+	lvl = NewLevelInfo(resp)
+	//lvl, err = parseLevelJSON(resp.Body)
 	return lvl, err
 }
 
+// SendBonusCode sends post request with bonus code to EN server,
+// returns level information or error
 func (en *EnAPI) SendBonusCode() {
 
 }
-

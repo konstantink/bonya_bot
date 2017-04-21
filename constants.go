@@ -7,6 +7,7 @@ const (
 	SetChatIdCommand
 	WatchCommand
 	StopWatchingCommand
+	CodeCommand
 	TestHelpChange
 )
 
@@ -24,26 +25,38 @@ const (
 *Название уровня:* %q
 *Времени на уровень:* %s
 *Автопереход через:* %s
+*Ограничение:* %s
 *Задание:*
-%s
-`
+%s`
+	LevelBlockInfoString = `
+=============================
+*Тип ограничения:* %s
+*Количество попыток:* %d
+*Время ограничения:* %d сек
+=============================`
+
 	HelpInfoString = `
 *Подсказка:* %d
 *Текст:* %s`
 	//MixedActionInfoString = `
-//*%s* вбил код *%q*.`
-	CorrectAnswerString = `*+* %q *%s*`
-	IncorrectAnswerString = `*-* %q *%s*`
-	SectorInfoString = `
-	Сектор *%q* закрыт. Осталось %d из %d`
+	//*%s* вбил код *%q*.`
+	//CorrectAnswerString   = `*+* %q *%s*`
+	CorrectAnswerString   = "*+* %q\n"
+	//IncorrectAnswerString = `*-* %q *%s*`
+	IncorrectAnswerString = "*-* %q\n"
+	NotSentAnswersString  = "*не отправлены:* %q"
+	//SectorInfoString      = "Сектор *%q* закрыт. Осталось %d из %d"
+	SectorInfoString      = "Осталось %d из %d"
+
 )
 
 var (
 	BotCommandDict map[string]BotCommand = map[string]BotCommand{
-	"info": InfoCommand,
-	"setchat": SetChatIdCommand,
-	"watch": WatchCommand,
-	"stopwatching": StopWatchingCommand,
-	"helpchange": TestHelpChange}
+		"info":         InfoCommand,
+		"setchat":      SetChatIdCommand,
+		"watch":        WatchCommand,
+		"stopwatching": StopWatchingCommand,
+		"c":            CodeCommand,
+		"с":            CodeCommand,
+		"helpchange":   TestHelpChange}
 )
-

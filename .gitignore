@@ -8,6 +8,8 @@ _obj
 _test
 Build
 .idea
+*.sublime-project
+*.sublime-workspace
 
 # Architecture specific extensions/prefixes
 *.[568vq]
