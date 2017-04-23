@@ -3,11 +3,13 @@ package main
 type BotCommand int8
 
 const (
-	InfoCommand BotCommand = 1 << iota
+	InfoCommand BotCommand = 1 + iota
 	SetChatIdCommand
 	WatchCommand
 	StopWatchingCommand
 	CodeCommand
+	CompositeCodeCommand
+	SectorsLeftCommand
 	TestHelpChange
 )
 
@@ -41,12 +43,15 @@ const (
 	//MixedActionInfoString = `
 	//*%s* вбил код *%q*.`
 	//CorrectAnswerString   = `*+* %q *%s*`
-	CorrectAnswerString   = "*+* %q\n"
+	CorrectAnswerString   = "*+* %s\n"
 	//IncorrectAnswerString = `*-* %q *%s*`
-	IncorrectAnswerString = "*-* %q\n"
-	NotSentAnswersString  = "*не отправлены:* %q"
-	//SectorInfoString      = "Сектор *%q* закрыт. Осталось %d из %d"
-	SectorInfoString      = "Осталось %d из %d"
+	IncorrectAnswerString = "*-* %s\n"
+	NotSentAnswersString  = "*блок:* %s"
+	SectorClosedString      = "Сектор *%q* закрыт. Осталось %d из %d"
+	SectorInfoString      = `
+Осталось *%d* из *%d*
+Оставшиеся сектора:
+%s`
 
 )
 
@@ -58,5 +63,9 @@ var (
 		"stopwatching": StopWatchingCommand,
 		"c":            CodeCommand,
 		"с":            CodeCommand,
+		"cc":           CompositeCodeCommand,
+		"сс":           CompositeCodeCommand,
+		"sl":           SectorsLeftCommand,
+		"ос":           SectorsLeftCommand,
 		"helpchange":   TestHelpChange}
 )

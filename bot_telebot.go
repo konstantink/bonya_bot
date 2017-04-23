@@ -135,7 +135,7 @@ func startWatching(en *EnAPI) {
 		ticker *time.Ticker
 	)
 
-	ticker = time.NewTicker(700 * time.Millisecond)
+	ticker = time.NewTicker(1 * time.Second)
 	quit = make(chan struct{})
 	go func() {
 		defer func() {
@@ -173,10 +173,6 @@ func setChat(chat telebot.Chat) {
 	defer mu.Unlock()
 
 	mainChat = chat
-}
-
-type some struct {
-
 }
 
 func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
@@ -230,11 +226,17 @@ func extractCommandAndArguments(m *telebot.Message) (command string, args string
 			args = m.Text[ent.Length+1:]
 		}
 	} else {
-		re := regexp.MustCompile("/([А-я]+)\\s+(.+)")
+		re := regexp.MustCompile("/([А-я]+)\\s*(.*)")
 		result := re.FindStringSubmatch(m.Text)
 		command, args = result[1], result[2]
 	}
 	return
+}
+
+func sectorsLeft(levelInfo *LevelInfo) {
+	var sectors = NewExtendedLevelSectors(levelInfo)
+	log.Print(sectors)
+	sendInfoChan <- &sectors
 }
 
 func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
@@ -262,13 +264,17 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 	case SetChatIdCommand:
 		setChat(m.Chat)
 	case CodeCommand:
-		re := regexp.MustCompile("\\s*,\\s*")
+		re := regexp.MustCompile("\\s+")
 		sendCode(en, re.Split(args, -1), *m)
+	case CompositeCodeCommand:
+		sendCode(en, []string{args}, *m)
+	case SectorsLeftCommand:
+		sectorsLeft(en.CurrentLevel)
 	}
 }
 
 func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
-	log.Println("Check helps state")
+	//log.Println("Check helps state")
 	for i, _ := range oldLevel.Helps {
 		if oldLevel.Helps[i].Number == newLevel.Helps[i].Number {
 			if oldLevel.Helps[i].HelpText != newLevel.Helps[i].HelpText {
@@ -278,7 +284,7 @@ func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
 			}
 		}
 	}
-	log.Println("Finish checking changes in Helps section")
+	//log.Println("Finish checking changes in Helps section")
 }
 
 func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
@@ -293,9 +299,8 @@ func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
 					//sectorChangeChan <- ExtendedSectorInfo{
 					sendInfoChan <- &ExtendedSectorInfo{
 						sectorInfo:    &newLevel.Sectors[i],
-						sectorsLeft:   newLevel.SectorsLeftToClose,
-						sectorsPassed: newLevel.PassedSectorsCount,
-						totalSectors:  int8(len(newLevel.Sectors))}
+						sectorStatistics: newSectorStatistics(newLevel),
+					}
 				}
 			}
 		}
@@ -388,11 +393,12 @@ func main() {
 				log.Print("Send images to Telegram chat")
 				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
 			case li := <-levelInfoChan:
-				log.Println("Receive level from channel")
+				//log.Println("Receive level from channel")
 				if isNewLevel(en.CurrentLevel, li){
 					log.Printf("New level #%d", li.Number)
 					en.CurrentLevel = li
 					sendLevelInfo(li, sendInfoChan, nil)
+					SendImageFromUrl(mainChat, ExtractImages(li.Tasks[0].TaskText))
 				}
 				go CheckHelps(en.CurrentLevel, li)
 				//go CheckMixedActions(en.CurrentLevel, li)
@@ -408,7 +414,7 @@ func main() {
 		Username:         envConfig.User,
 		Password:      envConfig.Password,
 		Client:        &http.Client{Jar: jar},
-		CurrentGameID: 25733,
+		CurrentGameID: 58294,
 		CurrentLevel:  nil,
 		Levels:        list.New()}
 	en.Login()
@@ -420,7 +426,7 @@ func main() {
 	for {
 		select {
 		case update = <-updates:
-			log.Printf("Read updates from Telegram: %s", update.Text)
+			//log.Printf("Read updates from Telegram: %s", update.Text)
 			if update.Text != "" {
 				if IsBotCommand(&update) {
 					go ProcessBotCommand(&update, &en)

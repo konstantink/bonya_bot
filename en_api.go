@@ -17,7 +17,7 @@ const (
 	//EnAddress = "http://quest.ua/%s"
 	// TODO: initially should be read from environment
 	// EnAddress server address
-	EnAddress = "http://demo.en.cx/%s"
+	EnAddress = "http://kharkov.en.cx/%s"
 
 	// LoginEndpoint login endpoint
 	LoginEndpoint = "login/signin?json=1"

@@ -126,15 +126,27 @@ type SectorInfo struct {
 	IsAnswered bool
 }
 
-type ExtendedSectorInfo struct {
-	sectorInfo    *SectorInfo
+type sectorStatistics struct {
 	sectorsPassed int8
 	sectorsLeft   int8
 	totalSectors  int8
 }
 
+func newSectorStatistics(levelInfo *LevelInfo) sectorStatistics {
+	return sectorStatistics{
+		sectorsPassed: levelInfo.PassedSectorsCount,
+		sectorsLeft: levelInfo.SectorsLeftToClose,
+		totalSectors: int8(len(levelInfo.Sectors)),
+	}
+}
+
+type ExtendedSectorInfo struct {
+	sectorStatistics
+	sectorInfo    *SectorInfo
+}
+
 func (esi *ExtendedSectorInfo) ToText() (result string) {
-	result = fmt.Sprintf(SectorInfoString, esi.sectorInfo.Name, esi.sectorsLeft, esi.totalSectors)
+	result = fmt.Sprintf(SectorClosedString, esi.sectorInfo.Name, esi.sectorsLeft, esi.totalSectors)
 	return
 }
 
@@ -143,6 +155,34 @@ func (esi *ExtendedSectorInfo) ReplyTo() (message telebot.Message) {
 }
 
 type LevelSectors []SectorInfo
+
+type ExtendedLevelSectors struct {
+	sectorStatistics
+	levelSectors LevelSectors
+}
+
+func NewExtendedLevelSectors(levelInfo *LevelInfo) ExtendedLevelSectors {
+	sectorStatistic := newSectorStatistics(levelInfo)
+	return ExtendedLevelSectors{
+		sectorStatistics: sectorStatistic,
+		levelSectors: levelInfo.Sectors,
+	}
+}
+
+func (ls *ExtendedLevelSectors) ToText() (result string) {
+	var openSectorNames []string
+	for _, sector := range ls.levelSectors {
+		if !sector.IsAnswered {
+			openSectorNames = append(openSectorNames, sector.Name)
+		}
+	}
+	result = fmt.Sprintf(SectorInfoString, ls.sectorsLeft, ls.totalSectors, strings.Join(openSectorNames, "\n"))
+	return
+}
+
+func (ls *ExtendedLevelSectors) ReplyTo() (message telebot.Message) {
+	return
+}
 
 //
 // Bonus related types
