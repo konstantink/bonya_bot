@@ -161,9 +161,9 @@ type ExtendedLevelSectors struct {
 	levelSectors LevelSectors
 }
 
-func NewExtendedLevelSectors(levelInfo *LevelInfo) ExtendedLevelSectors {
+func NewExtendedLevelSectors(levelInfo *LevelInfo) *ExtendedLevelSectors {
 	sectorStatistic := newSectorStatistics(levelInfo)
-	return ExtendedLevelSectors{
+	return &ExtendedLevelSectors{
 		sectorStatistics: sectorStatistic,
 		levelSectors: levelInfo.Sectors,
 	}
@@ -287,6 +287,7 @@ func (li *LevelInfo) ToText() (result string) {
 		li.Name,
 		PrettyTimePrint(li.Timeout),
 		PrettyTimePrint(li.TimeoutSecondsRemain),
+		li.RequiredSectorsCount,
 		block,
 		task)
 	return

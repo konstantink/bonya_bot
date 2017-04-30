@@ -135,6 +135,7 @@ func startWatching(en *EnAPI) {
 		ticker *time.Ticker
 	)
 
+	log.Print("Start monitoring game")
 	ticker = time.NewTicker(1 * time.Second)
 	quit = make(chan struct{})
 	go func() {
@@ -235,8 +236,12 @@ func extractCommandAndArguments(m *telebot.Message) (command string, args string
 
 func sectorsLeft(levelInfo *LevelInfo) {
 	var sectors = NewExtendedLevelSectors(levelInfo)
-	log.Print(sectors)
-	sendInfoChan <- &sectors
+	sendInfoChan <- sectors
+}
+
+func timeLeft(levelInfo *LevelInfo) {
+	var msg = fmt.Sprintf(TimeLeftString, PrettyTimePrint(levelInfo.TimeoutSecondsRemain))
+	sendInfoChan <- NewBotMessage(msg)
 }
 
 func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
@@ -270,6 +275,8 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 		sendCode(en, []string{args}, *m)
 	case SectorsLeftCommand:
 		sectorsLeft(en.CurrentLevel)
+	case TimeLeftCommand:
+		timeLeft(en.CurrentLevel)
 	}
 }
 
@@ -346,6 +353,15 @@ func initChannels() {
 	levelInfoChan = make(chan *LevelInfo, 10)
 }
 
+func initChat(bot *telebot.Bot, chatId int64) telebot.Chat {
+	var chat = telebot.Chat{ID: chatId}
+	chat, err := bot.GetChat(chat)
+	if err != nil {
+		log.Print("Failed to update chat info")
+	}
+	return chat
+}
+
 func sendLevelInfo(info ToChat, channel chan ToChat, callback func() string, args ...string) {
 	channel <- info
 
@@ -411,17 +427,22 @@ func main() {
 	jar, _ := cookiejar.New(nil)
 	log.Println(envConfig.User, envConfig.Password)
 	en = EnAPI{
-		Username:         envConfig.User,
+		Username:      envConfig.User,
 		Password:      envConfig.Password,
 		Client:        &http.Client{Jar: jar},
-		CurrentGameID: 58294,
+		CurrentGameID: envConfig.GameId,
 		CurrentLevel:  nil,
+		Domain:        envConfig.EngineDomain,
 		Levels:        list.New()}
 	en.Login()
 
 	log.Printf("Authorized on account %s", bot.Identity.Username)
 	updates = make(chan telebot.Message, 50)
 	bot.Listen(updates, 30*time.Second)
+
+	setChat(initChat(bot, envConfig.MainChat))
+	startWatching(&en)
+	en.CurrentLevel, _ = en.GetLevelInfo()
 
 	for {
 		select {
@@ -432,7 +453,8 @@ func main() {
 					go ProcessBotCommand(&update, &en)
 				}
 
-				log.Printf("[%s] %s", update.Sender.Username, update.Text)
+				log.Printf("[%s@%s(%d)] %s", update.Sender.Username, update.Chat.Title, update.Chat.ID,
+					update.Text)
 			}
 			//bot.SendMessage(update.Chat, fmt.Sprintf("Dear %s, I can't understand you", update.Sender.Username),
 			//	&telebot.SendOptions{ReplyTo: update, ParseMode: telebot.ModeMarkdown})

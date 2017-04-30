@@ -15,12 +15,16 @@ import (
 	"time"
 	//"io/ioutil"
 	"strings"
+	"github.com/tucnak/telebot"
 )
 
 type EnvConfig struct {
-	BotToken string `envconfig:"bot_token"`
-	User     string
-	Password string
+	BotToken     string `envconfig:"bot_token"`
+	GameId       int32  `envconfig:"game_id"`
+	EngineDomain string `envconfig:"engine_domain"`
+	MainChat     int64  `envconfig:"main_chat"`
+	User         string
+	Password     string
 }
 
 type Coordinate struct {
@@ -38,6 +42,22 @@ func (c Coordinate) String() (text string) {
 type Image struct {
 	url     string
 	caption string
+}
+
+type BotMessage struct {
+	msg string
+}
+
+func NewBotMessage(msg string) *BotMessage {
+	return &BotMessage{msg}
+}
+
+func (bm *BotMessage) ToText() string {
+	return bm.msg
+}
+
+func (bm *BotMessage) ReplyTo() (message telebot.Message) {
+	return
 }
 
 func FailOnError(err error, msg string) {
@@ -114,14 +134,14 @@ func ReplaceImages(text string) string {
 		mr [][]string     = re.FindAllStringSubmatch(text, -1)
 		result []byte     = make([]byte, len(text))
 	)
-	log.Printf("Before image replacing: %s", text)
+	//log.Printf("Before image replacing: %s", text)
 	if len(mr) > 0 {
 		copy(result, []byte(text))
 		for i, item := range mr {
 			result = regexp.MustCompile(item[0]).
 				ReplaceAllLiteral(result, []byte(fmt.Sprintf("[Картинка #%d](%s)", i+1, item[1])))
 		}
-		log.Printf("After image replacing: %s", text)
+		//log.Printf("After image replacing: %s", text)
 		return string(result)
 	}
 	return text

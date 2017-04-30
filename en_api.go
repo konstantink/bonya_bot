@@ -17,7 +17,7 @@ const (
 	//EnAddress = "http://quest.ua/%s"
 	// TODO: initially should be read from environment
 	// EnAddress server address
-	EnAddress = "http://kharkov.en.cx/%s"
+	EnAddress = "http://%s/%s"
 
 	// LoginEndpoint login endpoint
 	LoginEndpoint = "login/signin?json=1"
@@ -119,6 +119,7 @@ type EnAPI struct {
 	Client        *http.Client `json:"-"`
 	CurrentGameID int32        `json:"-"`
 	CurrentLevel  *LevelInfo   `json:"-"`
+	Domain        string       `json:"-"`
 	Levels        *list.List   `json:"-"`
 }
 
@@ -164,7 +165,7 @@ func (en *EnAPI) Login() error {
 		err          error
 	)
 
-	resp, err = en.makeRequest(fmt.Sprintf(EnAddress, LoginEndpoint), en)
+	resp, err = en.makeRequest(fmt.Sprintf(EnAddress, en.Domain, LoginEndpoint), en)
 	authResponse = NewAuthResponse(resp)
 	log.Println("Login response: ", authResponse, err)
 	if err != nil {
@@ -175,7 +176,7 @@ func (en *EnAPI) Login() error {
 		log.Printf("Failed to login to server: %s", authResponse.Description)
 		return errors.New(authResponse.Description)
 	}
-	log.Printf("Successfully logged in on server %q as user %q", EnAddress, en.Username)
+	log.Printf("Successfully logged in on server %q as user %q", en.Domain, en.Username)
 	return err
 }
 
@@ -184,7 +185,7 @@ func (en *EnAPI) Login() error {
 func (en *EnAPI) GetLevelInfo() (*LevelInfo, error) {
 	//gameUrl := "http://demo.en.cx/GameEngines/Encounter/Play/25733?json=1"
 	var (
-		gameURL = fmt.Sprintf(EnAddress, fmt.Sprintf(LevelInfoEndpoint, en.CurrentGameID))
+		gameURL = fmt.Sprintf(EnAddress, en.Domain, fmt.Sprintf(LevelInfoEndpoint, en.CurrentGameID))
 		lvl     *LevelInfo
 		err     error
 	)
@@ -216,7 +217,7 @@ type sendCodeResponse struct {
 // or error
 func (en *EnAPI) SendCode(code string) (*LevelInfo, error) {
 	var (
-		codeURL  = fmt.Sprintf(EnAddress, fmt.Sprintf(SendCodeEndpoint, en.CurrentGameID))
+		codeURL  = fmt.Sprintf(EnAddress, en.Domain, fmt.Sprintf(SendCodeEndpoint, en.CurrentGameID))
 		resp     *http.Response
 		body     SendCodeRequest
 		lvl      *LevelInfo

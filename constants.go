@@ -10,6 +10,7 @@ const (
 	CodeCommand
 	CompositeCodeCommand
 	SectorsLeftCommand
+	TimeLeftCommand
 	TestHelpChange
 )
 
@@ -27,6 +28,7 @@ const (
 *Название уровня:* %q
 *Времени на уровень:* %s
 *Автопереход через:* %s
+*Секторов закрыть:* %d
 *Ограничение:* %s
 *Задание:*
 %s`
@@ -47,12 +49,12 @@ const (
 	//IncorrectAnswerString = `*-* %q *%s*`
 	IncorrectAnswerString = "*-* %s\n"
 	NotSentAnswersString  = "*блок:* %s"
-	SectorClosedString      = "Сектор *%q* закрыт. Осталось %d из %d"
+	SectorClosedString    = "Сектор *%q* закрыт. Осталось %d из %d"
 	SectorInfoString      = `
 Осталось *%d* из *%d*
 Оставшиеся сектора:
 %s`
-
+	TimeLeftString        = "Осталось %s"
 )
 
 var (
@@ -67,5 +69,7 @@ var (
 		"сс":           CompositeCodeCommand,
 		"sl":           SectorsLeftCommand,
 		"ос":           SectorsLeftCommand,
+		"tl":           TimeLeftCommand,
+		"ов":           TimeLeftCommand,
 		"helpchange":   TestHelpChange}
 )
