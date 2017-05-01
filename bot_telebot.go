@@ -126,7 +126,7 @@ func processLevel(recepient telebot.Recipient, en *EnAPI) {
 	}
 	en.CurrentLevel = levelInfo
 	sendInfoChan <- en.CurrentLevel
-	SendImageFromUrl(mainChat, ExtractImages(en.CurrentLevel.Tasks[0].TaskText))
+	SendImageFromUrl(mainChat, ExtractImages(en.CurrentLevel.Tasks[0].TaskText, "Картинка"))
 	//SendLevelInfo(recepient, en.CurrentLevel)
 }
 
@@ -136,7 +136,7 @@ func startWatching(en *EnAPI) {
 	)
 
 	log.Print("Start monitoring game")
-	ticker = time.NewTicker(1 * time.Second)
+	ticker = time.NewTicker(1500 * time.Millisecond)
 	quit = make(chan struct{})
 	go func() {
 		defer func() {
@@ -261,7 +261,11 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 
 	switch commandCode {
 	case InfoCommand:
+		//if m.Sender.Username == "kkolesnikov" && m.Chat == nil {
+		//	processLevel(m.Sender, en)
+		//} else {
 		processLevel(m.Chat, en)
+		//}
 	case WatchCommand:
 		startWatching(en)
 	case StopWatchingCommand:
@@ -304,15 +308,26 @@ func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
 				// TODO: Replace with constant or parameter from configuration
 				if newLevel.SectorsLeftToClose <= 3 {
 					//sectorChangeChan <- ExtendedSectorInfo{
-					sendInfoChan <- &ExtendedSectorInfo{
-						sectorInfo:    &newLevel.Sectors[i],
-						sectorStatistics: newSectorStatistics(newLevel),
-					}
+					sendInfoChan <- NewExtendedLevelSectors(newLevel)
 				}
 			}
 		}
 	}
 	//log.Println("Finish checking changes in Sectors section")
+}
+
+func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
+	for i, _ := range oldLevel.Bonuses {
+		if oldLevel.Bonuses[i].Name == newLevel.Bonuses[i].Name {
+			if oldLevel.Bonuses[i].IsAnswered != newLevel.Bonuses[i].IsAnswered {
+				log.Printf("Bonus %q is available", newLevel.Bonuses[i].Name)
+				if newLevel.Bonuses[i].Task != ""{
+					sendInfoChan <- &newLevel.Bonuses[i]
+					SendImageFromUrl(mainChat, ExtractImages(newLevel.Bonuses[i].Task, "Бонус"))
+				}
+			}
+		}
+	}
 }
 
 func CheckMixedActions(oldLevel *LevelInfo, newLevel *LevelInfo) {
@@ -414,10 +429,11 @@ func main() {
 					log.Printf("New level #%d", li.Number)
 					en.CurrentLevel = li
 					sendLevelInfo(li, sendInfoChan, nil)
-					SendImageFromUrl(mainChat, ExtractImages(li.Tasks[0].TaskText))
+					SendImageFromUrl(mainChat, ExtractImages(li.Tasks[0].TaskText, "Картинка"))
 				}
 				go CheckHelps(en.CurrentLevel, li)
 				//go CheckMixedActions(en.CurrentLevel, li)
+				go CheckBonuses(en.CurrentLevel, li)
 				go CheckSectors(en.CurrentLevel, li)
 				en.CurrentLevel = li
 			}

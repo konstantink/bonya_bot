@@ -197,7 +197,11 @@ func (en *EnAPI) GetLevelInfo() (*LevelInfo, error) {
 	}
 
 	if strings.HasPrefix(resp.Header["Content-Type"][0], "text/html") {
-		log.Println("Incorrect cookies, need to re-login")
+		if resp.StatusCode == 504 {
+			log.Println("Timeout on server")
+		} else {
+			log.Println("Incorrect cookies, need to re-login")
+		}
 		return NewLevelInfo(nil), errors.New("Incorrect cookies, need to re-login")
 	}
 

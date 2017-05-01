@@ -127,97 +127,123 @@ func BlockTypeToString(typeId int8) string {
 	return "Команда"
 }
 
-func ReplaceImages(text string) string {
+func ReplaceImages(text string, caption string) string {
 	log.Print("Replace images in task text")
 	var (
-		re *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\".*?>")
-		mr [][]string     = re.FindAllStringSubmatch(text, -1)
-		result []byte     = make([]byte, len(text))
+		re *regexp.Regexp  = regexp.MustCompile("<img.+?src=\"(https?://.+?)\".*?>")
+		reA *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(https?://.+?\\.(jpg|png|bmp))\\\\?\".*?>(.*?)</a>")
+		mr  [][]string     = re.FindAllStringSubmatch(text, -1)
+		mrA [][]string     = reA.FindAllStringSubmatch(text, -1)
+		result []byte      = make([]byte, len(text))
 	)
 	//log.Printf("Before image replacing: %s", text)
+	copy(result, []byte(text))
 	if len(mr) > 0 {
-		copy(result, []byte(text))
+		//copy(result, []byte(text))
 		for i, item := range mr {
-			result = regexp.MustCompile(item[0]).
-				ReplaceAllLiteral(result, []byte(fmt.Sprintf("[Картинка #%d](%s)", i+1, item[1])))
+			result = regexp.MustCompile(regexp.QuoteMeta(item[0])).
+				ReplaceAllLiteral(result, []byte(fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1])))
 		}
 		//log.Printf("After image replacing: %s", text)
+		return string(result)
+	}
+	if len(mrA) > 0 {
+		for i, item := range mrA {
+			result = regexp.MustCompile(regexp.QuoteMeta(item[0])).
+				ReplaceAllLiteral(result, []byte(fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1])))
+		}
+		log.Printf("After image replacing: %s", text)
 		return string(result)
 	}
 	return text
 }
 
-func ExtractImages(text string) (images []Image) {
+func ExtractImages(text string, caption string) (images []Image) {
 	var (
-		re *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\".*?>")
-		mr [][]string     = re.FindAllStringSubmatch(text, -1)
+		re  *regexp.Regexp = regexp.MustCompile("<img.+?src=\\\\?\"(https?://.+?)\\\\?\".*?>")
+		reA *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(https?://.+?\\.(jpg|png|bmp))\\\\?\".*?>")
+		mr  [][]string     = re.FindAllStringSubmatch(text, -1)
+		mrA [][]string     = reA.FindAllStringSubmatch(text, -1)
 	)
 	images = make([]Image, 0)
 	if len(mr) > 0 {
 		for i, item := range mr {
-			images = append(images, Image{url: item[1], caption: fmt.Sprintf("Картинка #%d", i+1)})
+			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
+		}
+	}
+	if len(mrA) > 0 {
+		for i, item := range mrA {
+			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
 		}
 	}
 	return
 }
 
+
 func ReplaceCommonTags(text string) string {
 	log.Print("Replace html tags")
 	var (
 		reBr     *regexp.Regexp = regexp.MustCompile("<br\\s*/?>")
-		reHr     *regexp.Regexp = regexp.MustCompile("<hr\\s*/?>")
+		reHr     *regexp.Regexp = regexp.MustCompile("<hr.*?/?>")
 		reP      *regexp.Regexp = regexp.MustCompile("<p>([^ ]+?)</p>")
 		reBold   *regexp.Regexp = regexp.MustCompile("<b.*?/?>(.*?)</b>")
-		reItalic *regexp.Regexp = regexp.MustCompile("<i>(.+)</i>")
-		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color=\"#?(\\w+)\".*?>(.*?)</font>")
-		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\"(.+?)\".*?>(.+?)</a>")
-		res      []byte         = make([]byte, len(text))
+		reStrong *regexp.Regexp = regexp.MustCompile("<strong.*?>(.*?)</strong>")
+		reItalic *regexp.Regexp = regexp.MustCompile("<i>((?s:.+))</i>")
+		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color\\s*=\\\\?\"#?(\\w+)\\\\?\".*?>((?s:.*?))</font>")
+		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(.+?)\\\\?\".*?>(.+?)</a>")
+		res      string         = text
 	)
 
-	copy(res, []byte(text))
+	//copy(res, []byte(text))
 	if mrBr := reBr.FindAllStringSubmatch(text, -1); len(mrBr) > 0 {
 		for _, item := range mrBr {
-			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte(""))
+			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "")
 		}
 	}
-	if mrHr := reHr.FindAllStringSubmatch(string(res), -1); len(mrHr) > 0 {
+	if mrHr := reHr.FindAllStringSubmatch(res, -1); len(mrHr) > 0 {
 		for _, item := range mrHr {
-			res = regexp.MustCompile(item[0]).ReplaceAllLiteral(res, []byte("\n"))
+			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "\n")
 		}
 	}
-	if mrP := reP.FindAllStringSubmatch(string(res), -1); len(mrP) > 0 {
+	if mrP := reP.FindAllStringSubmatch(res, -1); len(mrP) > 0 {
 		for _, item := range mrP {
 			res = regexp.MustCompile(regexp.QuoteMeta(item[0])).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("\n%s", item[1])))
+				ReplaceAllLiteralString(res, fmt.Sprintf("\n%s", item[1]))
 		}
 	}
-	if mrFont := reFont.FindAllStringSubmatch(string(res), -1); len(mrFont) > 0 {
+	if mrFont := reFont.FindAllStringSubmatch(res, -1); len(mrFont) > 0 {
 		for _, item := range mrFont {
 			res = regexp.MustCompile(regexp.QuoteMeta(item[0])).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("%s", item[2])))
+				ReplaceAllLiteralString(res, fmt.Sprintf("%s", item[2]))
 				//ReplaceAllLiteral(res, []byte(fmt.Sprintf("#%s#%s#", item[1], item[2])))
 		}
 	}
-	if mrBold := reBold.FindAllStringSubmatch(string(res), -1); len(mrBold) > 0 {
+	if mrBold := reBold.FindAllStringSubmatch(res, -1); len(mrBold) > 0 {
 		for _, item := range mrBold {
 			res = regexp.MustCompile(regexp.QuoteMeta(item[0])).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("*%s*", item[1])))
+				ReplaceAllLiteralString(res, fmt.Sprintf("*%s*", item[1]))
 		}
 	}
-	if mrItalic := reItalic.FindAllStringSubmatch(string(res), -1); len(mrItalic) > 0 {
+	if mrStrong := reStrong.FindAllStringSubmatch(res, -1); len(mrStrong) > 0 {
+		for _, item := range mrStrong {
+			res = regexp.MustCompile(regexp.QuoteMeta(item[0])).
+				ReplaceAllLiteralString(res, fmt.Sprintf("*%s*", item[1]))
+		}
+	}
+	if mrItalic := reItalic.FindAllStringSubmatch(res, -1); len(mrItalic) > 0 {
 		for _, item := range mrItalic {
 			res = regexp.MustCompile(regexp.QuoteMeta(item[0])).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("_%s_", item[1])))
+				ReplaceAllLiteralString(res, fmt.Sprintf("_%s_", item[1]))
 		}
 	}
-	if mrA := reA.FindAllStringSubmatch(string(res), -1); len(mrA) > 0 {
+	if mrA := reA.FindAllStringSubmatch(res, -1); len(mrA) > 0 {
 		for _, item := range mrA {
 			res = regexp.MustCompile(regexp.QuoteMeta(item[0])).
-				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", item[2], item[1])))
+				ReplaceAllLiteralString(res, fmt.Sprintf("[%s](%s)", item[2], item[1]))
 		}
 	}
-	res = []byte(strings.Replace(string(res), "&nbsp;", " ", -1))
-	res = regexp.MustCompile("</?p>").ReplaceAllLiteral(res, []byte(""))
+	res = strings.Replace(res, "&nbsp;", " ", -1)
+	res = regexp.MustCompile("</?p>").ReplaceAllLiteralString(res, "")
 	return string(res)
 }
 

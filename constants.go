@@ -54,6 +54,9 @@ const (
 Осталось *%d* из *%d*
 Оставшиеся сектора:
 %s`
+	BonusInfoString       = `
+Бонус *%q* открыт
+Текст: %s`
 	TimeLeftString        = "Осталось %s"
 )
 

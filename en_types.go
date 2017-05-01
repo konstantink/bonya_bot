@@ -120,23 +120,23 @@ func (m MixedActionInfo) ReplyTo() (message telebot.Message) {
 //
 type SectorInfo struct {
 	SectorId   int32
-	Order      int8
+	Order      int16
 	Name       string
 	Answer     map[string]interface{}
 	IsAnswered bool
 }
 
 type sectorStatistics struct {
-	sectorsPassed int8
-	sectorsLeft   int8
-	totalSectors  int8
+	sectorsPassed int16
+	sectorsLeft   int16
+	totalSectors  int16
 }
 
 func newSectorStatistics(levelInfo *LevelInfo) sectorStatistics {
 	return sectorStatistics{
 		sectorsPassed: levelInfo.PassedSectorsCount,
 		sectorsLeft: levelInfo.SectorsLeftToClose,
-		totalSectors: int8(len(levelInfo.Sectors)),
+		totalSectors: int16(len(levelInfo.Sectors)),
 	}
 }
 
@@ -190,7 +190,7 @@ func (ls *ExtendedLevelSectors) ReplyTo() (message telebot.Message) {
 type BonusInfo struct {
 	BonusId        int32
 	Name           string
-	Number         int8
+	Number         int16
 	Task           string
 	Help           string
 	IsAnswered     bool
@@ -202,6 +202,19 @@ type BonusInfo struct {
 }
 
 type LevelBonuses []BonusInfo
+
+func (bi *BonusInfo) ToText() (result string) {
+	var tmp string = bi.Task
+	tmp = ReplaceImages(tmp, "Бонус")
+	tmp = ReplaceCommonTags(tmp)
+	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Task)
+	return
+}
+
+func (li *BonusInfo) ReplyTo() (message telebot.Message){
+	return
+}
+
 
 //
 // Level info related types
@@ -239,9 +252,9 @@ type LevelInfo struct {
 	BlockTargetId        int8
 	AttemtsNumber        int8
 	AttemtsPeriod        time.Duration
-	RequiredSectorsCount int8
-	PassedSectorsCount   int8
-	SectorsLeftToClose   int8
+	RequiredSectorsCount int16
+	PassedSectorsCount   int16
+	SectorsLeftToClose   int16
 	Tasks                LevelTasks
 	MixedActions         LevelMixedActions
 	Helps                LevelHelps
@@ -272,7 +285,7 @@ func NewLevelInfo(response *http.Response) *LevelInfo {
 func (li *LevelInfo) ToText() (result string) {
 	var task, block string
 	task = ReplaceCoordinates(li.Tasks[0].TaskText)
-	task = ReplaceImages(task)
+	task = ReplaceImages(task, "Картинка")
 	task = ReplaceCommonTags(task)
 
 	if li.HasAnswerBlockRule {
