@@ -73,7 +73,7 @@ func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
 			}
 		}
 		telebotFile, _ := telebot.NewFile(file.Name())
-		log.Println("Sending message with photo to the channel")
+		log.Printf("Sending photo to the channel (%s)", file.Name())
 		thumbnail := telebot.Thumbnail{File: telebotFile, Width: 120, Height: 120}
 		photoInfoChan <- &PhotoInfo{Recepient: recepient, Photo: &telebot.Photo{File: telebotFile,
 			Thumbnail: thumbnail, Caption: img.caption}, Options: nil}
@@ -136,7 +136,7 @@ func startWatching(en *EnAPI) {
 	)
 
 	log.Print("Start monitoring game")
-	ticker = time.NewTicker(1500 * time.Millisecond)
+	ticker = time.NewTicker(1000 * time.Millisecond)
 	quit = make(chan struct{})
 	go func() {
 		defer func() {
@@ -240,7 +240,7 @@ func sectorsLeft(levelInfo *LevelInfo) {
 }
 
 func timeLeft(levelInfo *LevelInfo) {
-	var msg = fmt.Sprintf(TimeLeftString, PrettyTimePrint(levelInfo.TimeoutSecondsRemain))
+	var msg = fmt.Sprintf(TimeLeftString, PrettyTimePrint(levelInfo.TimeoutSecondsRemain, true))
 	sendInfoChan <- NewBotMessage(msg)
 }
 
@@ -330,10 +330,18 @@ func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	}
 }
 
+func CheckLevelTimeLeft(fsm *LevelTimeCheckingMachine, li *LevelInfo) {
+	//log.Printf("FUNC fsm: %d", fsm.CurrentState().(TimeChecker).compareTime)
+	if fsm.CheckTime(li.TimeoutSecondsRemain * time.Second) {
+		timeLeft(li)
+		log.Printf(TimeLeftString, PrettyTimePrint(li.TimeoutSecondsRemain, true))
+	}
+}
+
 func CheckMixedActions(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	log.Println("Start checking changes in MixedActions section")
 	sort.Sort(newLevel.MixedActions)
-	fmt.Println(len(newLevel.MixedActions))
+	//fmt.Println(len(newLevel.MixedActions))
 	if len(newLevel.MixedActions) > 0 {
 		if len(oldLevel.MixedActions) == 0 {
 			for _, item := range newLevel.MixedActions {
@@ -385,6 +393,30 @@ func sendLevelInfo(info ToChat, channel chan ToChat, callback func() string, arg
 	}
 }
 
+func initTimeLevelChecking() *LevelTimeCheckingMachine {
+	var (
+		hourTimeChecker           TimeChecker = TimeChecker{60 * 60 * time.Second}
+		halfHourTimeChecker       TimeChecker = TimeChecker{30 * 60 * time.Second}
+		fifteenMinutesTimeChecker TimeChecker = TimeChecker{15 * 60 * time.Second}
+		fiveMinutesTimeChecker    TimeChecker = TimeChecker{5 * 60 * time.Second}
+		oneMinuteTimeChecker      TimeChecker = TimeChecker{60 * time.Second}
+		zeroTimeChecker           TimeChecker = TimeChecker{-1 * time.Second}
+
+		fsm   LevelTimeCheckingMachine
+		rules Ruleset = Ruleset{}
+	)
+
+	rules.AddTransition(hourTimeChecker, halfHourTimeChecker)
+	rules.AddTransition(halfHourTimeChecker, fifteenMinutesTimeChecker)
+	rules.AddTransition(fifteenMinutesTimeChecker, fiveMinutesTimeChecker)
+	rules.AddTransition(fiveMinutesTimeChecker, oneMinuteTimeChecker)
+	rules.AddTransition(oneMinuteTimeChecker, zeroTimeChecker)
+
+	fsm = NewLevelTimeCheckingMachine(hourTimeChecker, &rules)
+
+	return &fsm
+}
+
 func main() {
 	var (
 		envConfig EnvConfig
@@ -393,6 +425,7 @@ func main() {
 		updates   chan telebot.Message
 		update    telebot.Message
 		en        EnAPI
+		fsm       *LevelTimeCheckingMachine
 	)
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -404,6 +437,7 @@ func main() {
 	FailOnError(err, "Can't connect to bot server")
 
 	initChannels()
+	fsm = initTimeLevelChecking()
 
 	go func() {
 		defer func() {
@@ -416,10 +450,15 @@ func main() {
 			select {
 			case nsi := <-sendInfoChan:
 				log.Print("Send text to Telegram chat")
-				bot.SendMessage(mainChat, nsi.ToText(),
+				//log.Println(nsi.ToText())
+				//log.Println(mainChat)
+				err := bot.SendMessage(mainChat, nsi.ToText(),
 					&telebot.SendOptions{ParseMode: telebot.ModeMarkdown,
 						DisableWebPagePreview: true,
 						ReplyTo: nsi.ReplyTo()})
+				if err != nil {
+					log.Println(err)
+				}
 			case pi := <-photoInfoChan:
 				log.Print("Send images to Telegram chat")
 				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
@@ -428,6 +467,7 @@ func main() {
 				if isNewLevel(en.CurrentLevel, li){
 					log.Printf("New level #%d", li.Number)
 					en.CurrentLevel = li
+					fsm.ResetState(li.Timeout * time.Second)
 					sendLevelInfo(li, sendInfoChan, nil)
 					SendImageFromUrl(mainChat, ExtractImages(li.Tasks[0].TaskText, "Картинка"))
 				}
@@ -435,6 +475,7 @@ func main() {
 				//go CheckMixedActions(en.CurrentLevel, li)
 				go CheckBonuses(en.CurrentLevel, li)
 				go CheckSectors(en.CurrentLevel, li)
+				go CheckLevelTimeLeft(fsm, li)
 				en.CurrentLevel = li
 			}
 		}
@@ -457,8 +498,10 @@ func main() {
 	bot.Listen(updates, 30*time.Second)
 
 	setChat(initChat(bot, envConfig.MainChat))
-	startWatching(&en)
 	en.CurrentLevel, _ = en.GetLevelInfo()
+	fsm.ResetState(en.CurrentLevel.TimeoutSecondsRemain * time.Second)
+	log.Printf("MAIN fsm: %d", fsm.CurrentState().(TimeChecker).compareTime)
+	startWatching(&en)
 
 	for {
 		select {

@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"strings"
 	"github.com/tucnak/telebot"
+	"math"
 )
 
 type ToChat interface {
@@ -285,8 +286,11 @@ func NewLevelInfo(response *http.Response) *LevelInfo {
 func (li *LevelInfo) ToText() (result string) {
 	var task, block string
 	task = ReplaceCoordinates(li.Tasks[0].TaskText)
+	log.Printf("After coordinates: %s", task)
 	task = ReplaceImages(task, "Картинка")
+	log.Printf("After images: %s", task)
 	task = ReplaceCommonTags(task)
+	log.Printf("After tags: %s", task)
 
 	if li.HasAnswerBlockRule {
 		block = fmt.Sprintf("Есть" + LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
@@ -298,8 +302,9 @@ func (li *LevelInfo) ToText() (result string) {
 	result = fmt.Sprintf(LevelInfoString,
 		li.Number,
 		li.Name,
-		PrettyTimePrint(li.Timeout),
-		PrettyTimePrint(li.TimeoutSecondsRemain),
+		PrettyTimePrint(li.Timeout, true),
+		PrettyTimePrint(li.TimeoutSecondsRemain, false),
+		PrettyTimePrint(time.Duration(math.Abs(float64(li.TimeoutAward))), true),
 		li.RequiredSectorsCount,
 		block,
 		task)

@@ -71,7 +71,7 @@ func ReplaceCoordinates(text string) string {
 	//fmt.Printf("%v", Coordinate{lon:1.23, lat:0.234})
 	log.Print("Replace coordinates in task")
 	var (
-		numbersRe  *regexp.Regexp = regexp.MustCompile("(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
+		numbersRe  *regexp.Regexp = regexp.MustCompile("[^@](\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
 		hrefRe     *regexp.Regexp = regexp.MustCompile("<a.+?href=\"geo:(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})\">(.+?)</a>")
 		numbersMr  [][]string     = numbersRe.FindAllStringSubmatch(text, -1)
 		hrefMr     [][]string     = hrefRe.FindAllStringSubmatch(text, -1)
@@ -152,7 +152,7 @@ func ReplaceImages(text string, caption string) string {
 			result = regexp.MustCompile(regexp.QuoteMeta(item[0])).
 				ReplaceAllLiteral(result, []byte(fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1])))
 		}
-		log.Printf("After image replacing: %s", text)
+		//log.Printf("After image replacing: %s", text)
 		return string(result)
 	}
 	return text
@@ -170,10 +170,9 @@ func ExtractImages(text string, caption string) (images []Image) {
 		for i, item := range mr {
 			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
 		}
-	}
-	if len(mrA) > 0 {
+	} else if len(mrA) > 0 {
 		for i, item := range mrA {
-			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
+			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i + 1)})
 		}
 	}
 	return
@@ -186,7 +185,7 @@ func ReplaceCommonTags(text string) string {
 		reBr     *regexp.Regexp = regexp.MustCompile("<br\\s*/?>")
 		reHr     *regexp.Regexp = regexp.MustCompile("<hr.*?/?>")
 		reP      *regexp.Regexp = regexp.MustCompile("<p>([^ ]+?)</p>")
-		reBold   *regexp.Regexp = regexp.MustCompile("<b.*?/?>(.*?)</b>")
+		reBold   *regexp.Regexp = regexp.MustCompile("<b.*?/?>((?s:.*?))</b>")
 		reStrong *regexp.Regexp = regexp.MustCompile("<strong.*?>(.*?)</strong>")
 		reItalic *regexp.Regexp = regexp.MustCompile("<i>((?s:.+))</i>")
 		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color\\s*=\\\\?\"#?(\\w+)\\\\?\".*?>((?s:.*?))</font>")
@@ -195,6 +194,8 @@ func ReplaceCommonTags(text string) string {
 	)
 
 	//copy(res, []byte(text))
+
+	res = strings.Replace(text, "_", "\\_", -1)
 	if mrBr := reBr.FindAllStringSubmatch(text, -1); len(mrBr) > 0 {
 		for _, item := range mrBr {
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "")
@@ -263,8 +264,7 @@ func isNewLevel(oldLevel *LevelInfo, newLevel *LevelInfo) bool {
 	return oldLevel.LevelId != newLevel.LevelId
 }
 
-func PrettyTimePrint(d time.Duration) (res *bytes.Buffer) {
-	//var correctTime = d*time.Second
+func PrettyTimePrint(d time.Duration, nominative bool) (res *bytes.Buffer) {
 	var s string
 	res = bytes.NewBufferString(s)
 	//defer res.Close()
@@ -282,7 +282,11 @@ func PrettyTimePrint(d time.Duration) (res *bytes.Buffer) {
 	if (d/60)%60 > 0 {
 		switch (d / 60) % 60 {
 		case 1, 21, 31, 41, 51:
-			res.WriteString(fmt.Sprintf("%d минуту ", (d/60)%60))
+			if nominative{
+				res.WriteString(fmt.Sprintf("%d минута ", (d/60)%60))
+			} else {
+				res.WriteString(fmt.Sprintf("%d минуту ", (d/60)%60))
+			}
 		case 2, 3, 4, 22, 23, 24, 32, 33, 34, 42, 43, 44, 52, 53, 54:
 			res.WriteString(fmt.Sprintf("%d минуты ", (d/60)%60))
 		default:
@@ -293,7 +297,11 @@ func PrettyTimePrint(d time.Duration) (res *bytes.Buffer) {
 	if d%60 > 0 {
 		switch d % 60 {
 		case 1, 21, 31, 41, 51:
-			res.WriteString(fmt.Sprintf("%d секунду", d%60))
+			if nominative {
+				res.WriteString(fmt.Sprintf("%d секунда", d%60))
+			} else {
+				res.WriteString(fmt.Sprintf("%d секунду", d%60))
+			}
 		case 2, 3, 4, 22, 23, 24, 32, 33, 34, 42, 43, 44, 52, 53, 54:
 			res.WriteString(fmt.Sprintf("%d секунды", d%60))
 		default:
