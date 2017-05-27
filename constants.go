@@ -11,6 +11,7 @@ const (
 	CompositeCodeCommand
 	SectorsLeftCommand
 	TimeLeftCommand
+	ListHelpsCommand
 	TestHelpChange
 )
 
@@ -78,5 +79,6 @@ var (
 		"ос":           SectorsLeftCommand,
 		"tl":           TimeLeftCommand,
 		"ов":           TimeLeftCommand,
+		"lh":           ListHelpsCommand,
 		"helpchange":   TestHelpChange}
 )

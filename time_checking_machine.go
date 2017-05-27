@@ -15,7 +15,7 @@ type TimeChecker struct {
 }
 
 func (tc TimeChecker) CheckTime(time time.Duration) bool {
-	if time <= tc.compareTime {
+	if time > 0 && time <= tc.compareTime {
 		log.Printf("%d <= %d, changing state to check\n", time, tc.compareTime)
 		return true
 	}
@@ -108,7 +108,7 @@ func (fsm *LevelTimeCheckingMachine) ResetState(levelTime time.Duration) {
 	for _, t := range keys {
 		if (levelTime - t.Origin().(TimeChecker).compareTime) >= t.Origin().(TimeChecker).compareTime {
 			fsm.SetState(t.Origin())
-			log.Printf("New state: %d\n", t.Origin().(TimeChecker).compareTime)
+			log.Printf("New state: %.0f minute(s)\n", t.Origin().(TimeChecker).compareTime.Minutes())
 			break
 		}
 	}

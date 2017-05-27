@@ -1,15 +1,15 @@
 package main
 
 import (
-	"time"
-	"fmt"
-	"log"
-	"net/http"
 	"encoding/json"
-	"io/ioutil"
-	"strings"
+	"fmt"
 	"github.com/tucnak/telebot"
+	"io/ioutil"
+	"log"
 	"math"
+	"net/http"
+	"strings"
+	"time"
 )
 
 type ToChat interface {
@@ -17,6 +17,10 @@ type ToChat interface {
 	ReplyTo() telebot.Message
 }
 
+type ExtraInfo struct {
+	coords Coordinates
+	images Images
+}
 
 type HelpState int8
 
@@ -26,6 +30,8 @@ const (
 )
 
 type HelpInfo struct {
+	ExtraInfo                  `json:"-"`
+
 	HelpId           int32
 	Number           int8
 	HelpText         string
@@ -38,7 +44,16 @@ type HelpInfo struct {
 	PenaltyMessage   string
 }
 
+func (help *HelpInfo) ProcessText() {
+	//log.Printf("Before %s", help.HelpText)
+	help.HelpText, help.coords = ReplaceCoordinates(help.HelpText)
+	help.HelpText, help.images = ReplaceImages(help.HelpText, "Картинка")
+	help.HelpText = ReplaceCommonTags(help.HelpText)
+	//log.Printf("After %s", help.HelpText)
+}
+
 func (help *HelpInfo) ToText() (result string) {
+	//result, images := ReplaceImages(help.HelpText, "Картинка")
 	result = fmt.Sprintf(HelpInfoString, help.Number, ReplaceCommonTags(help.HelpText))
 	return
 }
@@ -136,14 +151,14 @@ type sectorStatistics struct {
 func newSectorStatistics(levelInfo *LevelInfo) sectorStatistics {
 	return sectorStatistics{
 		sectorsPassed: levelInfo.PassedSectorsCount,
-		sectorsLeft: levelInfo.SectorsLeftToClose,
-		totalSectors: int16(len(levelInfo.Sectors)),
+		sectorsLeft:   levelInfo.SectorsLeftToClose,
+		totalSectors:  int16(len(levelInfo.Sectors)),
 	}
 }
 
 type ExtendedSectorInfo struct {
 	sectorStatistics
-	sectorInfo    *SectorInfo
+	sectorInfo *SectorInfo
 }
 
 func (esi *ExtendedSectorInfo) ToText() (result string) {
@@ -166,7 +181,7 @@ func NewExtendedLevelSectors(levelInfo *LevelInfo) *ExtendedLevelSectors {
 	sectorStatistic := newSectorStatistics(levelInfo)
 	return &ExtendedLevelSectors{
 		sectorStatistics: sectorStatistic,
-		levelSectors: levelInfo.Sectors,
+		levelSectors:     levelInfo.Sectors,
 	}
 }
 
@@ -189,6 +204,8 @@ func (ls *ExtendedLevelSectors) ReplyTo() (message telebot.Message) {
 // Bonus related types
 //
 type BonusInfo struct {
+	ExtraInfo                             `json:"-"`
+
 	BonusId        int32
 	Name           string
 	Number         int16
@@ -204,18 +221,20 @@ type BonusInfo struct {
 
 type LevelBonuses []BonusInfo
 
+func (bi *BonusInfo) ProcessText() {
+	bi.Help, bi.coords = ReplaceCoordinates(bi.Help)
+	bi.Help, bi.images = ReplaceImages(bi.Help, "Бонус")
+	bi.Help = ReplaceCommonTags(bi.Help)
+}
+
 func (bi *BonusInfo) ToText() (result string) {
-	var tmp string = bi.Task
-	tmp = ReplaceImages(tmp, "Бонус")
-	tmp = ReplaceCommonTags(tmp)
-	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Task)
+	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Help)
 	return
 }
 
-func (li *BonusInfo) ReplyTo() (message telebot.Message){
+func (li *BonusInfo) ReplyTo() (message telebot.Message) {
 	return
 }
-
 
 //
 // Level info related types
@@ -231,6 +250,8 @@ const (
 )
 
 type LevelInfo struct {
+	ExtraInfo                               `json:"-"`
+
 	LevelId              int32
 	GameId               int32
 	GameTypeId           int8
@@ -268,7 +289,7 @@ type LevelInfo struct {
 func NewLevelInfo(response *http.Response) *LevelInfo {
 	var lvlResponse = &LevelResponse{}
 
-	if response == nil{
+	if response == nil {
 		return &LevelInfo{}
 	}
 
@@ -283,17 +304,26 @@ func NewLevelInfo(response *http.Response) *LevelInfo {
 	return lvlResponse.Level
 }
 
+func (li *LevelInfo) ProcessText() {
+	li.Tasks[0].TaskText, li.coords = ReplaceCoordinates(li.Tasks[0].TaskText)
+	li.Tasks[0].TaskText, li.images = ReplaceImages(li.Tasks[0].TaskText, "Картинка")
+	li.Tasks[0].TaskText = ReplaceCommonTags(li.Tasks[0].TaskText)
+}
+
 func (li *LevelInfo) ToText() (result string) {
-	var task, block string
-	task = ReplaceCoordinates(li.Tasks[0].TaskText)
-	log.Printf("After coordinates: %s", task)
-	task = ReplaceImages(task, "Картинка")
-	log.Printf("After images: %s", task)
-	task = ReplaceCommonTags(task)
-	log.Printf("After tags: %s", task)
+	var (
+		block string
+		//coords Coordinates
+	)
+	//task, _ = ReplaceCoordinates(li.Tasks[0].TaskText)
+	//log.Printf("After coordinates: %s", task)
+	//task = ReplaceImages(task, "Картинка")
+	//log.Printf("After images: %s", task)
+	//task = ReplaceCommonTags(task)
+	//log.Printf("After tags: %s", task)
 
 	if li.HasAnswerBlockRule {
-		block = fmt.Sprintf("Есть" + LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
+		block = fmt.Sprintf("Есть"+LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
 			li.AttemtsNumber, li.AttemtsPeriod)
 	} else {
 		block = "Нет"
@@ -307,11 +337,11 @@ func (li *LevelInfo) ToText() (result string) {
 		PrettyTimePrint(time.Duration(math.Abs(float64(li.TimeoutAward))), true),
 		li.RequiredSectorsCount,
 		block,
-		task)
+		li.Tasks[0].TaskText)
 	return
 }
 
-func (li *LevelInfo) ReplyTo() (message telebot.Message){
+func (li *LevelInfo) ReplyTo() (message telebot.Message) {
 	return
 }
 
@@ -337,7 +367,7 @@ type LevelResponse struct {
 }
 
 type Codes struct {
-	replyTo telebot.Message
+	replyTo                     telebot.Message
 	correct, incorrect, notSent []string
 }
 
