@@ -101,7 +101,7 @@ func (apiResp *EnAPIAuthResponse) createFromResponse(resp *http.Response) error 
 func NewAuthResponse(response *http.Response) *EnAPIAuthResponse {
 	var authResponse = &EnAPIAuthResponse{}
 
-	if response == nil{
+	if response == nil {
 		return authResponse
 	}
 
@@ -124,7 +124,7 @@ type EnAPI struct {
 }
 
 func (en *EnAPI) makeRequest(url string, payload interface{}) (*http.Response, error) {
-	var buf   bytes.Buffer
+	var buf bytes.Buffer
 
 	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
 		return nil, err
@@ -221,12 +221,12 @@ type sendCodeResponse struct {
 // or error
 func (en *EnAPI) SendCode(code string) (*LevelInfo, error) {
 	var (
-		codeURL  = fmt.Sprintf(EnAddress, en.Domain, fmt.Sprintf(SendCodeEndpoint, en.CurrentGameID))
-		resp     *http.Response
-		body     SendCodeRequest
-		lvl      *LevelInfo
+		codeURL = fmt.Sprintf(EnAddress, en.Domain, fmt.Sprintf(SendCodeEndpoint, en.CurrentGameID))
+		resp    *http.Response
+		body    SendCodeRequest
+		lvl     *LevelInfo
 		//bodyJSON []byte
-		err      error
+		err error
 	)
 
 	body = SendCodeRequest{

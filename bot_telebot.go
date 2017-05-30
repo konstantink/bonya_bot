@@ -13,6 +13,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,11 +32,18 @@ type PhotoInfo struct {
 	Options   *telebot.SendOptions
 }
 
+type CoordInfo struct {
+	Recepient telebot.Recipient
+	Location  *telebot.Venue
+	Options   *telebot.SendOptions
+}
+
 var (
-	quit          chan struct{}
-	sendInfoChan  chan ToChat
-	photoInfoChan chan *PhotoInfo
-	levelInfoChan chan *LevelInfo
+	quit           chan struct{}
+	sendInfoChan   chan ToChat
+	photoInfoChan  chan *PhotoInfo
+	coordsInfoChan chan *CoordInfo
+	levelInfoChan  chan *LevelInfo
 
 	mainChat telebot.Chat
 )
@@ -77,6 +85,15 @@ func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
 		thumbnail := telebot.Thumbnail{File: telebotFile, Width: 120, Height: 120}
 		photoInfoChan <- &PhotoInfo{Recepient: recepient, Photo: &telebot.Photo{File: telebotFile,
 			Thumbnail: thumbnail, Caption: img.caption}, Options: nil}
+	}
+}
+
+func SendCoords(recepient telebot.Recipient, coords Coordinates) {
+	for _, coord := range coords {
+		coordsInfoChan <- &CoordInfo{Recepient: recepient,
+			Location: &telebot.Venue{Location: telebot.Location{Latitude: float32(coord.lon), Longitude: float32(coord.lat)},
+				Title: coord.originalString},
+			Options: nil}
 	}
 }
 
@@ -125,8 +142,18 @@ func processLevel(recepient telebot.Recipient, en *EnAPI) {
 		return
 	}
 	en.CurrentLevel = levelInfo
+
+	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.coords =
+		ReplaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
+
+	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.images =
+		ReplaceImages(en.CurrentLevel.Tasks[0].TaskText, "Картинка")
+
+	en.CurrentLevel.Tasks[0].TaskText = ReplaceCommonTags(en.CurrentLevel.Tasks[0].TaskText)
+
 	sendInfoChan <- en.CurrentLevel
-	SendImageFromUrl(mainChat, ExtractImages(en.CurrentLevel.Tasks[0].TaskText, "Картинка"))
+	SendImageFromUrl(mainChat, en.CurrentLevel.images)
+	SendCoords(mainChat, en.CurrentLevel.coords)
 	//SendLevelInfo(recepient, en.CurrentLevel)
 }
 
@@ -212,7 +239,7 @@ func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
 			codes.incorrect = append(codes.incorrect, code)
 		}
 		levelInfoChan <- lvl
-		time.Sleep(500*time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 	sendInfoChan <- &codes
 }
@@ -220,11 +247,14 @@ func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
 func extractCommandAndArguments(m *telebot.Message) (command string, args string) {
 	if len(m.Entities) > 0 {
 		ent := m.Entities[0]
-		command = m.Text[ent.Offset+1:ent.Length]
+		command = m.Text[ent.Offset+1 : ent.Length]
 		if len(command)+1 == len(m.Text) {
 			args = ""
 		} else {
 			args = m.Text[ent.Length+1:]
+		}
+		if idx := strings.Index(command, "@"); idx != -1 {
+			command = command[:idx]
 		}
 	} else {
 		re := regexp.MustCompile("/([А-я]+)\\s*(.*)")
@@ -242,6 +272,27 @@ func sectorsLeft(levelInfo *LevelInfo) {
 func timeLeft(levelInfo *LevelInfo) {
 	var msg = fmt.Sprintf(TimeLeftString, PrettyTimePrint(levelInfo.TimeoutSecondsRemain, true))
 	sendInfoChan <- NewBotMessage(msg)
+}
+
+func listHelps(levelInfo *LevelInfo) {
+	for _, helpInfo := range levelInfo.Helps {
+		//log.Printf("==========================================: %s", helpInfo.HelpText)
+		helpInfo.ProcessText()
+		sendInfoChan <- &helpInfo
+		//SendImageFromUrl(mainChat, helpInfo.images)
+		//SendCoords(mainChat, helpInfo.coords)
+	}
+}
+
+func timeHelpLeft(levelInfo *LevelInfo) {
+	for _, help := range levelInfo.Helps {
+		if help.RemainSeconds > 0 {
+			var msg = fmt.Sprintf(HelpTimeLeft, help.Number, PrettyTimePrint(help.RemainSeconds, false))
+			sendInfoChan <- NewBotMessage(msg)
+			return
+		}
+	}
+	sendInfoChan <- NewBotMessage("Подсказок на уровне больше нет")
 }
 
 func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
@@ -281,6 +332,10 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 		sectorsLeft(en.CurrentLevel)
 	case TimeLeftCommand:
 		timeLeft(en.CurrentLevel)
+	case ListHelpsCommand:
+		listHelps(en.CurrentLevel)
+	case HelpTimeCommand:
+		timeHelpLeft(en.CurrentLevel)
 	}
 }
 
@@ -288,10 +343,12 @@ func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	//log.Println("Check helps state")
 	for i, _ := range oldLevel.Helps {
 		if oldLevel.Helps[i].Number == newLevel.Helps[i].Number {
-			if oldLevel.Helps[i].HelpText != newLevel.Helps[i].HelpText {
+			if oldLevel.Helps[i].HelpText == "" && newLevel.Helps[i].HelpText != "" {
 				log.Println("New hint is available")
-				//helpChangeChan <- newLevel.Helps[i]
+				newLevel.Helps[i].ProcessText()
 				sendInfoChan <- &newLevel.Helps[i]
+				SendCoords(mainChat, newLevel.Helps[i].coords)
+				SendImageFromUrl(mainChat, newLevel.Helps[i].images)
 			}
 		}
 	}
@@ -320,10 +377,13 @@ func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	for i, _ := range oldLevel.Bonuses {
 		if oldLevel.Bonuses[i].Name == newLevel.Bonuses[i].Name {
 			if oldLevel.Bonuses[i].IsAnswered != newLevel.Bonuses[i].IsAnswered {
-				log.Printf("Bonus %q is available", newLevel.Bonuses[i].Name)
-				if newLevel.Bonuses[i].Task != ""{
+				log.Printf("Bonus %q is available, code %q", newLevel.Bonuses[i].Name,
+					newLevel.Bonuses[i].Answer["Answer"])
+				if newLevel.Bonuses[i].Help != "" {
+					newLevel.Bonuses[i].ProcessText()
 					sendInfoChan <- &newLevel.Bonuses[i]
-					SendImageFromUrl(mainChat, ExtractImages(newLevel.Bonuses[i].Task, "Бонус"))
+					SendCoords(mainChat, newLevel.Bonuses[i].coords)
+					SendImageFromUrl(mainChat, newLevel.Bonuses[i].images)
 				}
 			}
 		}
@@ -334,7 +394,7 @@ func CheckLevelTimeLeft(fsm *LevelTimeCheckingMachine, li *LevelInfo) {
 	//log.Printf("FUNC fsm: %d", fsm.CurrentState().(TimeChecker).compareTime)
 	if fsm.CheckTime(li.TimeoutSecondsRemain * time.Second) {
 		timeLeft(li)
-		log.Printf(TimeLeftString, PrettyTimePrint(li.TimeoutSecondsRemain, true))
+		//log.Printf(TimeLeftString, PrettyTimePrint(li.TimeoutSecondsRemain, true))
 	}
 }
 
@@ -373,6 +433,7 @@ func CheckMixedActions(oldLevel *LevelInfo, newLevel *LevelInfo) {
 func initChannels() {
 	sendInfoChan = make(chan ToChat, 10)
 	photoInfoChan = make(chan *PhotoInfo, 10)
+	coordsInfoChan = make(chan *CoordInfo, 10)
 	levelInfoChan = make(chan *LevelInfo, 10)
 }
 
@@ -452,24 +513,34 @@ func main() {
 				log.Print("Send text to Telegram chat")
 				//log.Println(nsi.ToText())
 				//log.Println(mainChat)
-				err := bot.SendMessage(mainChat, nsi.ToText(),
+				text := nsi.ToText()
+				//if len(text) > 4096 {
+				//	for
+				//}
+				err := bot.SendMessage(mainChat, text,
 					&telebot.SendOptions{ParseMode: telebot.ModeMarkdown,
 						DisableWebPagePreview: true,
-						ReplyTo: nsi.ReplyTo()})
+						ReplyTo:               nsi.ReplyTo()})
 				if err != nil {
 					log.Println(err)
 				}
+			case ci := <-coordsInfoChan:
+				log.Print("Send coordinates to chat")
+				bot.SendVenue(ci.Recepient, ci.Location, ci.Options)
 			case pi := <-photoInfoChan:
 				log.Print("Send images to Telegram chat")
 				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
 			case li := <-levelInfoChan:
 				//log.Println("Receive level from channel")
-				if isNewLevel(en.CurrentLevel, li){
+				if isNewLevel(en.CurrentLevel, li) {
 					log.Printf("New level #%d", li.Number)
 					en.CurrentLevel = li
+					en.CurrentLevel.ProcessText()
 					fsm.ResetState(li.Timeout * time.Second)
-					sendLevelInfo(li, sendInfoChan, nil)
-					SendImageFromUrl(mainChat, ExtractImages(li.Tasks[0].TaskText, "Картинка"))
+
+					sendLevelInfo(en.CurrentLevel, sendInfoChan, nil)
+					SendImageFromUrl(mainChat, en.CurrentLevel.images)
+					SendCoords(mainChat, en.CurrentLevel.coords)
 				}
 				go CheckHelps(en.CurrentLevel, li)
 				//go CheckMixedActions(en.CurrentLevel, li)
@@ -500,7 +571,7 @@ func main() {
 	setChat(initChat(bot, envConfig.MainChat))
 	en.CurrentLevel, _ = en.GetLevelInfo()
 	fsm.ResetState(en.CurrentLevel.TimeoutSecondsRemain * time.Second)
-	log.Printf("MAIN fsm: %d", fsm.CurrentState().(TimeChecker).compareTime)
+	log.Printf("MAIN fsm: %.0f minute(s)", fsm.CurrentState().(TimeChecker).compareTime.Minutes())
 	startWatching(&en)
 
 	for {

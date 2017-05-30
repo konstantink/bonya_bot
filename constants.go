@@ -11,6 +11,8 @@ const (
 	CompositeCodeCommand
 	SectorsLeftCommand
 	TimeLeftCommand
+	ListHelpsCommand
+	HelpTimeCommand
 	TestHelpChange
 )
 
@@ -37,7 +39,7 @@ const (
 =============================
 *Тип ограничения:* %s
 *Количество попыток:* %d
-*Время ограничения:* %d сек
+*Время ограничения:* %s
 =============================`
 
 	HelpInfoString = `
@@ -55,13 +57,15 @@ const (
 Осталось *%d* из *%d*
 Оставшиеся сектора:
 %s`
-	BonusInfoString       = `
+	BonusInfoString = `
 Бонус *%q* открыт
 Текст: %s`
-	TimeLeftString        = `
+	TimeLeftString = `
 Осталось %s
 *ГО, КиПеш, ГО!!!*
 `
+	HelpTimeLeft = `
+*Подсказка %d* будет через %s`
 )
 
 var (
@@ -78,5 +82,7 @@ var (
 		"ос":           SectorsLeftCommand,
 		"tl":           TimeLeftCommand,
 		"ов":           TimeLeftCommand,
+		"lh":           ListHelpsCommand,
+		"ht":           HelpTimeCommand,
 		"helpchange":   TestHelpChange}
 )
