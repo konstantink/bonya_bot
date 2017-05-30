@@ -87,8 +87,8 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 	mr = geoHrefRe.FindAllStringSubmatch(res, -1)
 	if len(mr) > 0 {
 		for _, item := range mr {
-			lon, _ := strconv.ParseFloat(item[1], 32)
-			lat, _ := strconv.ParseFloat(item[2], 32)
+			lon, _ := strconv.ParseFloat(item[1], 64)
+			lat, _ := strconv.ParseFloat(item[2], 64)
 			coords = append(coords, Coordinate{lon: lon, lat: lat, originalString: item[3]})
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
 		}
@@ -121,59 +121,6 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 	return res, coords
 }
 
-//func ReplaceCoordinates(text string) string {
-//	//fmt.Printf("%v", Coordinate{lon:1.23, lat:0.234})
-//	log.Print("Replace coordinates in task")
-//	var (
-//		numbersRe  *regexp.Regexp = regexp.MustCompile("[^@](\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
-//		hrefRe     *regexp.Regexp = regexp.MustCompile("<a.+?href=\"geo:(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})\">(.+?)</a>")
-//		numbersMr  [][]string     = numbersRe.FindAllStringSubmatch(text, -1)
-//		hrefMr     [][]string     = hrefRe.FindAllStringSubmatch(text, -1)
-//		res        string         = text
-//		mr         [][]string
-//	)
-//
-//	if len(hrefMr) > 0 {
-//		mr = hrefMr
-//	} else if len(numbersMr) > 0 {
-//		mr = numbersMr
-//	} else {
-//		return res
-//	}
-//
-//	coords := make(Coordinates, len(mr), len(mr))
-//	for i, item := range mr {
-//		lon, _ := strconv.ParseFloat(item[1], 64)
-//		lat, _ := strconv.ParseFloat(item[2], 64)
-//		coords[i] = Coordinate{lon: lon, lat: lat, originalString: item[0]}
-//		res = regexp.MustCompile(coords[i].originalString).
-//			ReplaceAllLiteralString(res, fmt.Sprintf(CoordinateLink, coords[i], coords[i]))
-//	}
-//
-//	return res
-//}
-
-//func ReplaceImages(text string) (string, []Image) {
-//	log.Print("Replace images in task")
-//	var (
-//		re     *regexp.Regexp = regexp.MustCompile("<img.+?src=\"(https?://.+?)\".*>")
-//		mr     [][]string     = re.FindAllStringSubmatch(text, -1)
-//		res    []byte         = make([]byte, len(text))
-//		images []Image        = make([]Image, 0)
-//	)
-//	copy(res, []byte(text))
-//	if len(mr) > 0 {
-//		for i, item := range re.FindAllStringSubmatch(text, -1) {
-//			img := Image{url: item[1], caption: fmt.Sprintf("Картинка #%d", i+1)}
-//			res = regexp.MustCompile(item[0]).
-//				ReplaceAllLiteral(res, []byte(fmt.Sprintf("[%s](%s)", img.caption, img.url)))
-//			images = append(images, img)
-//		}
-//		return string(res), images
-//	}
-//	return text, images
-//}
-
 func BlockTypeToString(typeId int8) string {
 	if typeId == 0 || typeId == 1 {
 		return "Игрок"
@@ -198,7 +145,7 @@ func ReplaceImages(text string, caption string) (string, Images) {
 			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
 			result = regexp.MustCompile(regexp.QuoteMeta(item[0])).
 				ReplaceAllLiteralString(result, fmt.Sprintf("%s #%d", caption, i+1))
-				//ReplaceAllLiteralString(result, fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1]))
+			//ReplaceAllLiteralString(result, fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1]))
 		}
 		//log.Printf("After image replacing: %s", text)
 		return result, images
@@ -208,7 +155,7 @@ func ReplaceImages(text string, caption string) (string, Images) {
 			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
 			result = regexp.MustCompile(regexp.QuoteMeta(item[0])).
 				ReplaceAllLiteralString(result, fmt.Sprintf("%s #%d", caption, i+1))
-				//ReplaceAllLiteralString(result, fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1]))
+			//ReplaceAllLiteralString(result, fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1]))
 		}
 		//log.Printf("After image replacing: %s", text)
 		return result, images
@@ -246,7 +193,7 @@ func ReplaceCommonTags(text string) string {
 		reStrong *regexp.Regexp = regexp.MustCompile("<strong.*?>(.*?)</strong>")
 		reItalic *regexp.Regexp = regexp.MustCompile("<i>((?s:.+?))</i>")
 		reSpan   *regexp.Regexp = regexp.MustCompile("<span.*?>(.*?)</span>")
-		reCenter *regexp.Regexp = regexp.MustCompile("<center>(.*?)</center>")
+		reCenter *regexp.Regexp = regexp.MustCompile("<center>((?s:.*?))</center>")
 		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color\\s*=\\\\?[\"«]?#?(\\w+)\\\\?[\"»]?.*?>((?s:.*?))</font>")
 		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(.+?)\\\\?\".*?>(.+?)</a>")
 		res      string         = text

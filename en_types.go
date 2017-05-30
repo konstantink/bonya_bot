@@ -30,7 +30,7 @@ const (
 )
 
 type HelpInfo struct {
-	ExtraInfo                  `json:"-"`
+	ExtraInfo `json:"-"`
 
 	HelpId           int32
 	Number           int8
@@ -40,7 +40,7 @@ type HelpInfo struct {
 	PenaltyComment   string
 	RequestConfirm   bool
 	PenaltyHelpState HelpState
-	RemainSeconds    int32
+	RemainSeconds    time.Duration
 	PenaltyMessage   string
 }
 
@@ -204,7 +204,7 @@ func (ls *ExtendedLevelSectors) ReplyTo() (message telebot.Message) {
 // Bonus related types
 //
 type BonusInfo struct {
-	ExtraInfo                             `json:"-"`
+	ExtraInfo `json:"-"`
 
 	BonusId        int32
 	Name           string
@@ -250,7 +250,7 @@ const (
 )
 
 type LevelInfo struct {
-	ExtraInfo                               `json:"-"`
+	ExtraInfo `json:"-"`
 
 	LevelId              int32
 	GameId               int32
@@ -324,7 +324,7 @@ func (li *LevelInfo) ToText() (result string) {
 
 	if li.HasAnswerBlockRule {
 		block = fmt.Sprintf("Есть"+LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
-			li.AttemtsNumber, li.AttemtsPeriod)
+			li.AttemtsNumber, PrettyTimePrint(li.AttemtsPeriod, true))
 	} else {
 		block = "Нет"
 	}

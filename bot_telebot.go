@@ -13,6 +13,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -91,7 +92,7 @@ func SendCoords(recepient telebot.Recipient, coords Coordinates) {
 	for _, coord := range coords {
 		coordsInfoChan <- &CoordInfo{Recepient: recepient,
 			Location: &telebot.Venue{Location: telebot.Location{Latitude: float32(coord.lon), Longitude: float32(coord.lat)},
-						Title: coord.originalString},
+				Title: coord.originalString},
 			Options: nil}
 	}
 }
@@ -238,7 +239,7 @@ func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
 			codes.incorrect = append(codes.incorrect, code)
 		}
 		levelInfoChan <- lvl
-		time.Sleep(500*time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 	sendInfoChan <- &codes
 }
@@ -246,11 +247,14 @@ func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
 func extractCommandAndArguments(m *telebot.Message) (command string, args string) {
 	if len(m.Entities) > 0 {
 		ent := m.Entities[0]
-		command = m.Text[ent.Offset+1:ent.Length]
+		command = m.Text[ent.Offset+1 : ent.Length]
 		if len(command)+1 == len(m.Text) {
 			args = ""
 		} else {
 			args = m.Text[ent.Length+1:]
+		}
+		if idx := strings.Index(command, "@"); idx != -1 {
+			command = command[:idx]
 		}
 	} else {
 		re := regexp.MustCompile("/([А-я]+)\\s*(.*)")
@@ -278,6 +282,17 @@ func listHelps(levelInfo *LevelInfo) {
 		//SendImageFromUrl(mainChat, helpInfo.images)
 		//SendCoords(mainChat, helpInfo.coords)
 	}
+}
+
+func timeHelpLeft(levelInfo *LevelInfo) {
+	for _, help := range levelInfo.Helps {
+		if help.RemainSeconds > 0 {
+			var msg = fmt.Sprintf(HelpTimeLeft, help.Number, PrettyTimePrint(help.RemainSeconds, false))
+			sendInfoChan <- NewBotMessage(msg)
+			return
+		}
+	}
+	sendInfoChan <- NewBotMessage("Подсказок на уровне больше нет")
 }
 
 func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
@@ -319,6 +334,8 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 		timeLeft(en.CurrentLevel)
 	case ListHelpsCommand:
 		listHelps(en.CurrentLevel)
+	case HelpTimeCommand:
+		timeHelpLeft(en.CurrentLevel)
 	}
 }
 
@@ -326,7 +343,7 @@ func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	//log.Println("Check helps state")
 	for i, _ := range oldLevel.Helps {
 		if oldLevel.Helps[i].Number == newLevel.Helps[i].Number {
-			if oldLevel.Helps[i].HelpText != newLevel.Helps[i].HelpText {
+			if oldLevel.Helps[i].HelpText == "" && newLevel.Helps[i].HelpText != "" {
 				log.Println("New hint is available")
 				newLevel.Helps[i].ProcessText()
 				sendInfoChan <- &newLevel.Helps[i]
@@ -362,7 +379,7 @@ func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
 			if oldLevel.Bonuses[i].IsAnswered != newLevel.Bonuses[i].IsAnswered {
 				log.Printf("Bonus %q is available, code %q", newLevel.Bonuses[i].Name,
 					newLevel.Bonuses[i].Answer["Answer"])
-				if newLevel.Bonuses[i].Help != ""{
+				if newLevel.Bonuses[i].Help != "" {
 					newLevel.Bonuses[i].ProcessText()
 					sendInfoChan <- &newLevel.Bonuses[i]
 					SendCoords(mainChat, newLevel.Bonuses[i].coords)
@@ -503,7 +520,7 @@ func main() {
 				err := bot.SendMessage(mainChat, text,
 					&telebot.SendOptions{ParseMode: telebot.ModeMarkdown,
 						DisableWebPagePreview: true,
-						ReplyTo: nsi.ReplyTo()})
+						ReplyTo:               nsi.ReplyTo()})
 				if err != nil {
 					log.Println(err)
 				}
@@ -515,16 +532,11 @@ func main() {
 				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
 			case li := <-levelInfoChan:
 				//log.Println("Receive level from channel")
-				if isNewLevel(en.CurrentLevel, li){
+				if isNewLevel(en.CurrentLevel, li) {
 					log.Printf("New level #%d", li.Number)
 					en.CurrentLevel = li
 					en.CurrentLevel.ProcessText()
 					fsm.ResetState(li.Timeout * time.Second)
-
-					//task, coords := ReplaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
-					//task = ReplaceImages(task, "Картинка")
-					//task = ReplaceCommonTags(task)
-					//en.CurrentLevel.Tasks[0].TaskText = task
 
 					sendLevelInfo(en.CurrentLevel, sendInfoChan, nil)
 					SendImageFromUrl(mainChat, en.CurrentLevel.images)
