@@ -3,8 +3,6 @@ package main
 import (
 	"container/list"
 	"fmt"
-	"github.com/kelseyhightower/envconfig"
-	"github.com/tucnak/telebot"
 	"io"
 	"log"
 	"net/http"
@@ -16,6 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kelseyhightower/envconfig"
+	"github.com/tucnak/telebot"
 )
 
 //type BotCommand int8
@@ -91,8 +92,8 @@ func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
 func SendCoords(recepient telebot.Recipient, coords Coordinates) {
 	for _, coord := range coords {
 		coordsInfoChan <- &CoordInfo{Recepient: recepient,
-			Location: &telebot.Venue{Location: telebot.Location{Latitude: float32(coord.lon), Longitude: float32(coord.lat)},
-				Title: coord.originalString},
+			Location: &telebot.Venue{Location: telebot.Location{Latitude: float32(coord.Lat), Longitude: float32(coord.Lon)},
+				Title: coord.OriginalString},
 			Options: nil}
 	}
 }
@@ -143,17 +144,18 @@ func processLevel(recepient telebot.Recipient, en *EnAPI) {
 	}
 	en.CurrentLevel = levelInfo
 
-	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.coords =
+	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.Coords =
 		ReplaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
 
-	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.images =
+	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.Images =
 		ReplaceImages(en.CurrentLevel.Tasks[0].TaskText, "Картинка")
 
 	en.CurrentLevel.Tasks[0].TaskText = ReplaceCommonTags(en.CurrentLevel.Tasks[0].TaskText)
 
 	sendInfoChan <- en.CurrentLevel
-	SendImageFromUrl(mainChat, en.CurrentLevel.images)
-	SendCoords(mainChat, en.CurrentLevel.coords)
+	SendImageFromUrl(mainChat, en.CurrentLevel.Images)
+	SendCoords(mainChat, en.CurrentLevel.Coords)
+	//log.Printf("In func %p", &en.CurrentLevel.Coords)
 	//SendLevelInfo(recepient, en.CurrentLevel)
 }
 
@@ -316,6 +318,7 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 		//	processLevel(m.Sender, en)
 		//} else {
 		processLevel(m.Chat, en)
+		//log.Printf("After func %p", &en.CurrentLevel.Coords)
 		//}
 	case WatchCommand:
 		startWatching(en)
@@ -347,8 +350,8 @@ func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
 				log.Println("New hint is available")
 				newLevel.Helps[i].ProcessText()
 				sendInfoChan <- &newLevel.Helps[i]
-				SendCoords(mainChat, newLevel.Helps[i].coords)
-				SendImageFromUrl(mainChat, newLevel.Helps[i].images)
+				SendCoords(mainChat, newLevel.Helps[i].Coords)
+				SendImageFromUrl(mainChat, newLevel.Helps[i].Images)
 			}
 		}
 	}
@@ -382,8 +385,8 @@ func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
 				if newLevel.Bonuses[i].Help != "" {
 					newLevel.Bonuses[i].ProcessText()
 					sendInfoChan <- &newLevel.Bonuses[i]
-					SendCoords(mainChat, newLevel.Bonuses[i].coords)
-					SendImageFromUrl(mainChat, newLevel.Bonuses[i].images)
+					SendCoords(mainChat, newLevel.Bonuses[i].Coords)
+					SendImageFromUrl(mainChat, newLevel.Bonuses[i].Images)
 				}
 			}
 		}
@@ -539,8 +542,8 @@ func main() {
 					fsm.ResetState(li.Timeout * time.Second)
 
 					sendLevelInfo(en.CurrentLevel, sendInfoChan, nil)
-					SendImageFromUrl(mainChat, en.CurrentLevel.images)
-					SendCoords(mainChat, en.CurrentLevel.coords)
+					SendImageFromUrl(mainChat, en.CurrentLevel.Images)
+					SendCoords(mainChat, en.CurrentLevel.Coords)
 				}
 				go CheckHelps(en.CurrentLevel, li)
 				//go CheckMixedActions(en.CurrentLevel, li)
@@ -573,6 +576,8 @@ func main() {
 	fsm.ResetState(en.CurrentLevel.TimeoutSecondsRemain * time.Second)
 	log.Printf("MAIN fsm: %.0f minute(s)", fsm.CurrentState().(TimeChecker).compareTime.Minutes())
 	startWatching(&en)
+
+	go startServer(&en)
 
 	for {
 		select {

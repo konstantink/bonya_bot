@@ -28,14 +28,14 @@ type EnvConfig struct {
 }
 
 type Coordinate struct {
-	lon            float64
-	lat            float64
-	originalString string
+	Lat            float64 `json:"lattitude"`
+	Lon            float64 `json:"longtitude"`
+	OriginalString string  `json:"name"`
 }
 type Coordinates []Coordinate
 
 func (c Coordinate) String() (text string) {
-	text = fmt.Sprintf("%f,%f", c.lon, c.lat)
+	text = fmt.Sprintf("%f,%f", c.Lat, c.Lon)
 	return
 }
 
@@ -89,7 +89,7 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 		for _, item := range mr {
 			lon, _ := strconv.ParseFloat(item[1], 64)
 			lat, _ := strconv.ParseFloat(item[2], 64)
-			coords = append(coords, Coordinate{lon: lon, lat: lat, originalString: item[3]})
+			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[3]})
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
 		}
 	}
@@ -99,7 +99,7 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 		for _, item := range mr {
 			lon, _ := strconv.ParseFloat(item[1], 32)
 			lat, _ := strconv.ParseFloat(item[2], 32)
-			coords = append(coords, Coordinate{lon: lon, lat: lat, originalString: item[3]})
+			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[3]})
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
 		}
 	}
@@ -109,13 +109,13 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 		for _, item := range mr {
 			lon, _ := strconv.ParseFloat(item[1], 32)
 			lat, _ := strconv.ParseFloat(item[2], 32)
-			coords = append(coords, Coordinate{lon: lon, lat: lat, originalString: item[0]})
+			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[0]})
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
 		}
 	}
 
 	for _, coord := range coords {
-		res = strings.Replace(res, "#coords#", coord.originalString, 1)
+		res = strings.Replace(res, "#coords#", coord.OriginalString, 1)
 	}
 
 	return res, coords
