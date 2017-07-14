@@ -24,6 +24,12 @@ func getCoordinates(w http.ResponseWriter, r *http.Request, en *EnAPI) {
 		response.LevelNumber = en.CurrentLevel.Number
 		//log.Printf("%p", &en.CurrentLevel.Coords)
 		_, response.Coords = ReplaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
+		for _, hi := range en.CurrentLevel.Helps {
+			if hi.HelpText != "" {
+				_, coords := ReplaceCoordinates(hi.HelpText)
+				response.Coords = append(response.Coords, coords...)
+			}
+		}
 	}
 
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
