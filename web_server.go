@@ -9,7 +9,7 @@ import (
 
 type CoordinatesResponse struct {
 	LevelNumber int8        `json:"level"`
-	Coords      Coordinates `json:"coordinates,omitempty"`
+	Coords      Coordinates `json:"coordinates"`
 }
 
 func getCoordinates(w http.ResponseWriter, r *http.Request, en *EnAPI) {
