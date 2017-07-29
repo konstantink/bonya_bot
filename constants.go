@@ -48,7 +48,7 @@ const (
 	//MixedActionInfoString = `
 	//*%s* вбил код *%q*.`
 	//CorrectAnswerString   = `*+* %q *%s*`
-	CorrectAnswerString   = "*+* %s\n"
+	CorrectAnswerString = "*+* %s\n"
 	//IncorrectAnswerString = `*-* %q *%s*`
 	IncorrectAnswerString = "*-* %s\n"
 	NotSentAnswersString  = "*блок:* %s"
@@ -59,10 +59,11 @@ const (
 %s`
 	BonusInfoString = `
 Бонус *%q* открыт
+Закрыт кодом: %s
 Текст: %s`
 	TimeLeftString = `
 Осталось %s
-*ГО, КиПеш, ГО!!!*
+*Pink Panther, вперед!*
 `
 	HelpTimeLeft = `
 *Подсказка %d* будет через %s`

@@ -228,7 +228,7 @@ func (bi *BonusInfo) ProcessText() {
 }
 
 func (bi *BonusInfo) ToText() (result string) {
-	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Help)
+	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Answer["Answer"], bi.Help)
 	return
 }
 

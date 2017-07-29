@@ -281,8 +281,8 @@ func listHelps(levelInfo *LevelInfo) {
 		//log.Printf("==========================================: %s", helpInfo.HelpText)
 		helpInfo.ProcessText()
 		sendInfoChan <- &helpInfo
-		//SendImageFromUrl(mainChat, helpInfo.images)
-		//SendCoords(mainChat, helpInfo.coords)
+		SendImageFromUrl(mainChat, helpInfo.Images)
+		SendCoords(mainChat, helpInfo.Coords)
 	}
 }
 

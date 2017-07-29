@@ -52,5 +52,5 @@ func initHandlers(en *EnAPI) {
 
 func startServer(en *EnAPI) {
 	initHandlers(en)
-	log.Fatal(http.ListenAndServe("127.0.0.1:8081", nil))
+	log.Fatal(http.ListenAndServe(":8081", nil))
 }
