@@ -89,7 +89,8 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 		for _, item := range mr {
 			lon, _ := strconv.ParseFloat(item[1], 64)
 			lat, _ := strconv.ParseFloat(item[2], 64)
-			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[3]})
+			originalString, _ := ReplaceImages(item[3], "Picture")
+			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: ReplaceCommonTags(originalString)})
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
 		}
 	}
@@ -97,9 +98,10 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 	mr = hrefRe.FindAllStringSubmatch(res, -1)
 	if len(mr) > 0 {
 		for _, item := range mr {
-			lon, _ := strconv.ParseFloat(item[1], 32)
-			lat, _ := strconv.ParseFloat(item[2], 32)
-			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[3]})
+			lon, _ := strconv.ParseFloat(item[1], 64)
+			lat, _ := strconv.ParseFloat(item[2], 64)
+			originalString, _ := ReplaceImages(item[3], "Picture")
+			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: ReplaceCommonTags(originalString)})
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
 		}
 	}
@@ -107,9 +109,9 @@ func ReplaceCoordinates(text string) (string, Coordinates) {
 	mr = numbersRe.FindAllStringSubmatch(res, -1)
 	if len(mr) > 0 {
 		for _, item := range mr {
-			lon, _ := strconv.ParseFloat(item[1], 32)
-			lat, _ := strconv.ParseFloat(item[2], 32)
-			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[0]})
+			lon, _ := strconv.ParseFloat(item[1], 64)
+			lat, _ := strconv.ParseFloat(item[2], 64)
+			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: ReplaceCommonTags(item[0])})
 			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
 		}
 	}
@@ -184,7 +186,7 @@ func ExtractImages(text string, caption string) (images []Image) {
 }
 
 func ReplaceCommonTags(text string) string {
-	log.Print("Replace html tags")
+	log.Printf("Replace html tags %s", text)
 	var (
 		reBr     *regexp.Regexp = regexp.MustCompile("<br\\s*/?>")
 		reHr     *regexp.Regexp = regexp.MustCompile("<hr.*?/?>")
@@ -194,7 +196,7 @@ func ReplaceCommonTags(text string) string {
 		reItalic *regexp.Regexp = regexp.MustCompile("<i>((?s:.+?))</i>")
 		reSpan   *regexp.Regexp = regexp.MustCompile("<span.*?>(.*?)</span>")
 		reCenter *regexp.Regexp = regexp.MustCompile("<center>((?s:.*?))</center>")
-		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color\\s*=\\\\?[\"«]?#?(\\w+)\\\\?[\"»]?.*?>((?s:.*?))</font>")
+		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color\\s*=\\\\?[\"«]?#?(\\w+)\\\\?[\"»]?.*\\s*?>((?s:.*))(</font>)?")
 		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(.+?)\\\\?\".*?>(.+?)</a>")
 		res      string         = text
 	)

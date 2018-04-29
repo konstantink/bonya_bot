@@ -63,7 +63,7 @@ const (
 Текст: %s`
 	TimeLeftString = `
 Осталось %s
-*Pink Panther, вперед!*
+*Go, КиПеш, go!*
 `
 	HelpTimeLeft = `
 *Подсказка %d* будет через %s`

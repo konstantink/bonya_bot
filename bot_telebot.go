@@ -259,9 +259,19 @@ func extractCommandAndArguments(m *telebot.Message) (command string, args string
 			command = command[:idx]
 		}
 	} else {
-		re := regexp.MustCompile("/([А-я]+)\\s*(.*)")
+		re := regexp.MustCompile("^/([А-я]+)\\s*(.*)")
+		log.Printf("Analyzing command: %s", m.Text)
 		result := re.FindStringSubmatch(m.Text)
-		command, args = result[1], result[2]
+		if len(result) == 0{
+			log.Printf("[WARNING] Can't extract command and arguments from %s", m.Text)
+			return
+		}
+		if len(result) > 2 {
+			command, args = result[1], result[2]
+		} else {
+			command = result[1]
+			args = ""
+		}
 	}
 	return
 }
@@ -379,10 +389,10 @@ func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
 func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	for i, _ := range oldLevel.Bonuses {
 		if oldLevel.Bonuses[i].Name == newLevel.Bonuses[i].Name {
-			if oldLevel.Bonuses[i].IsAnswered != newLevel.Bonuses[i].IsAnswered {
+			if oldLevel.Bonuses[i].IsAnswered != newLevel.Bonuses[i].IsAnswered || (oldLevel.Bonuses[i].SecondsToStart != newLevel.Bonuses[i].SecondsToStart && newLevel.Bonuses[i].SecondsToStart == 0) {
 				log.Printf("Bonus %q is available, code %q", newLevel.Bonuses[i].Name,
 					newLevel.Bonuses[i].Answer["Answer"])
-				if newLevel.Bonuses[i].Help != "" {
+				if newLevel.Bonuses[i].Help != "" || newLevel.Bonuses[i].Task != "" {
 					newLevel.Bonuses[i].ProcessText()
 					sendInfoChan <- &newLevel.Bonuses[i]
 					SendCoords(mainChat, newLevel.Bonuses[i].Coords)
@@ -573,8 +583,10 @@ func main() {
 
 	setChat(initChat(bot, envConfig.MainChat))
 	en.CurrentLevel, _ = en.GetLevelInfo()
-	fsm.ResetState(en.CurrentLevel.TimeoutSecondsRemain * time.Second)
-	log.Printf("MAIN fsm: %.0f minute(s)", fsm.CurrentState().(TimeChecker).compareTime.Minutes())
+	if en.CurrentLevel != nil {
+		fsm.ResetState(en.CurrentLevel.TimeoutSecondsRemain * time.Second)
+		log.Printf("MAIN fsm: %.0f minute(s)", fsm.CurrentState().(TimeChecker).compareTime.Minutes())
+	}
 	startWatching(&en)
 
 	go startServer(&en)
