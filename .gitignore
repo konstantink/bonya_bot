@@ -3,11 +3,12 @@
 *.a
 *.so
 
-# Folders
+# Folders, IDE files
 _obj
 _test
 Build
 .idea
+.vscode
 *.sublime-project
 *.sublime-workspace
 
