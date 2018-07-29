@@ -1,15 +1,12 @@
-package main
+package en
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/tucnak/telebot"
-	"io/ioutil"
 	"log"
-	"math"
-	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tucnak/telebot"
 )
 
 type ToChat interface {
@@ -17,22 +14,28 @@ type ToChat interface {
 	ReplyTo() telebot.Message
 }
 
-type ExtraInfo struct {
-	Coords Coordinates
-	Images Images
+// Extra - extra information about coordinates or images that are available in level information,
+// hint, bonus, etc.
+type Extra struct {
+	Coords        Coordinates
+	Images        Images
+	ProcessedText string
 }
 
+// HelpState type to define the state of the hint
 type HelpState int8
 
 const (
+	// Closed means that help is unavailable
 	Closed HelpState = iota
+	// Opened means that help is available
 	Opened HelpState = 1 << iota
 )
 
 type HelpInfo struct {
-	ExtraInfo `json:"-"`
+	Extra `json:"-"`
 
-	HelpId           int32
+	HelpID           int
 	Number           int8
 	HelpText         string
 	IsPenalty        bool
@@ -46,8 +49,8 @@ type HelpInfo struct {
 
 func (help *HelpInfo) ProcessText() {
 	//log.Printf("Before %s", help.HelpText)
-	help.HelpText, help.Coords = ReplaceCoordinates(help.HelpText)
-	help.HelpText, help.Images = ReplaceImages(help.HelpText, "Картинка")
+	help.HelpText, help.Coords = ExtractCoordinates(help.HelpText)
+	help.HelpText, help.Images = ExtractImages(help.HelpText, "Картинка")
 	help.HelpText = ReplaceCommonTags(help.HelpText)
 	//log.Printf("After %s", help.HelpText)
 }
@@ -87,10 +90,10 @@ const (
 )
 
 type MixedActionInfo struct {
-	ActionId      int32
-	LevelId       int32
+	ActionID      int
+	LevelID       int
 	LevelNumber   int8
-	UserId        int32
+	UserID        int
 	Kind          MixedActionKind
 	Login         string
 	Answer        string
@@ -110,7 +113,7 @@ func (m LevelMixedActions) Len() int {
 }
 
 func (m LevelMixedActions) Less(i, j int) bool {
-	return m[i].ActionId > m[j].ActionId
+	return m[i].ActionID > m[j].ActionID
 }
 
 func (m LevelMixedActions) Swap(i, j int) {
@@ -120,9 +123,9 @@ func (m LevelMixedActions) Swap(i, j int) {
 func (m MixedActionInfo) ToText() (result string) {
 	log.Println("New MixedAction is added")
 	if m.IsCorrect {
-		result = fmt.Sprintf(CorrectAnswerString, m.Answer, m.Login)
+		result = fmt.Sprintf(CorrectAnswerString, m.Answer)
 	} else {
-		result = fmt.Sprintf(IncorrectAnswerString, m.Answer, m.Login)
+		result = fmt.Sprintf(IncorrectAnswerString, m.Answer)
 	}
 	return
 }
@@ -148,7 +151,7 @@ type sectorStatistics struct {
 	totalSectors  int16
 }
 
-func newSectorStatistics(levelInfo *LevelInfo) sectorStatistics {
+func newSectorStatistics(levelInfo *Level) sectorStatistics {
 	return sectorStatistics{
 		sectorsPassed: levelInfo.PassedSectorsCount,
 		sectorsLeft:   levelInfo.SectorsLeftToClose,
@@ -177,7 +180,7 @@ type ExtendedLevelSectors struct {
 	levelSectors LevelSectors
 }
 
-func NewExtendedLevelSectors(levelInfo *LevelInfo) *ExtendedLevelSectors {
+func NewExtendedLevelSectors(levelInfo *Level) *ExtendedLevelSectors {
 	sectorStatistic := newSectorStatistics(levelInfo)
 	return &ExtendedLevelSectors{
 		sectorStatistics: sectorStatistic,
@@ -204,7 +207,7 @@ func (ls *ExtendedLevelSectors) ReplyTo() (message telebot.Message) {
 // Bonus related types
 //
 type BonusInfo struct {
-	ExtraInfo `json:"-"`
+	Extra `json:"-"`
 
 	BonusId        int32
 	Name           string
@@ -222,13 +225,13 @@ type BonusInfo struct {
 type LevelBonuses []BonusInfo
 
 func (bi *BonusInfo) ProcessText() {
-	bi.Help, bi.Coords = ReplaceCoordinates(bi.Help)
-	bi.Help, bi.Images = ReplaceImages(bi.Help, "Бонус")
+	bi.Help, bi.Coords = ExtractCoordinates(bi.Help)
+	bi.Help, bi.Images = ExtractImages(bi.Help, "Бонус")
 	bi.Help = ReplaceCommonTags(bi.Help)
 }
 
 func (bi *BonusInfo) ToText() (result string) {
-	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Answer["Answer"], bi.Help)
+	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Help)
 	return
 }
 
@@ -239,160 +242,33 @@ func (li *BonusInfo) ReplyTo() (message telebot.Message) {
 //
 // Level info related types
 //
-type Sequence int8
-
-const (
-	Linear Sequence = iota
-	Said
-	Random
-	Assault
-	DynamicRandom
-)
-
-type LevelInfo struct {
-	ExtraInfo `json:"-"`
-
-	LevelId              int32
-	GameId               int32
-	GameTypeId           int8
-	GameZoneId           int8
-	GameNumber           int32
-	GameTitle            string
-	LevelSequence        Sequence
-	UserId               int32
-	TeamId               int32
-	Name                 string
-	Number               int8
-	Timeout              time.Duration
-	TimeoutSecondsRemain time.Duration
-	TimeoutAward         time.Duration
-	IsPassed             bool
-	Dismissed            bool
-	StartTime            map[string]float64 `json:"-"`
-	HasAnswerBlockRule   bool
-	BlockDuration        time.Duration
-	BlockTargetId        int8
-	AttemtsNumber        int8
-	AttemtsPeriod        time.Duration
-	RequiredSectorsCount int16
-	PassedSectorsCount   int16
-	SectorsLeftToClose   int16
-	Tasks                LevelTasks
-	MixedActions         LevelMixedActions
-	Helps                LevelHelps
-	PenaltyHelps         LevelPenaltyHelps
-	Bonuses              LevelBonuses
-	//Messages             []string
-	Sectors LevelSectors
-}
-
-func NewLevelInfo(response *http.Response) *LevelInfo {
-	var lvlResponse = &LevelResponse{}
-
-	if response == nil {
-		return &LevelInfo{}
-	}
-
-	body, _ := ioutil.ReadAll(response.Body)
-
-	err := json.Unmarshal(body, lvlResponse)
-	if err != nil {
-		log.Println("ERROR: failed to parse level json:", err)
-		return &LevelInfo{}
-	}
-
-	return lvlResponse.Level
-}
-
-func (li *LevelInfo) ProcessText() {
-	li.Tasks[0].TaskText, li.Coords = ReplaceCoordinates(li.Tasks[0].TaskText)
-	li.Tasks[0].TaskText, li.Images = ReplaceImages(li.Tasks[0].TaskText, "Картинка")
-	li.Tasks[0].TaskText = ReplaceCommonTags(li.Tasks[0].TaskText)
-}
-
-func (li *LevelInfo) ToText() (result string) {
-	var (
-		block string
-		//coords Coordinates
-	)
-	//task, _ = ReplaceCoordinates(li.Tasks[0].TaskText)
-	//log.Printf("After coordinates: %s", task)
-	//task = ReplaceImages(task, "Картинка")
-	//log.Printf("After images: %s", task)
-	//task = ReplaceCommonTags(task)
-	//log.Printf("After tags: %s", task)
-
-	if li.HasAnswerBlockRule {
-		block = fmt.Sprintf("Есть"+LevelBlockInfoString, BlockTypeToString(li.BlockTargetId),
-			li.AttemtsNumber, PrettyTimePrint(li.AttemtsPeriod, true))
-	} else {
-		block = "Нет"
-	}
-
-	result = fmt.Sprintf(LevelInfoString,
-		li.Number,
-		li.Name,
-		PrettyTimePrint(li.Timeout, true),
-		PrettyTimePrint(li.TimeoutSecondsRemain, false),
-		PrettyTimePrint(time.Duration(math.Abs(float64(li.TimeoutAward))), true),
-		li.RequiredSectorsCount,
-		block,
-		li.Tasks[0].TaskText)
-	return
-}
-
-func (li *LevelInfo) ReplyTo() (message telebot.Message) {
-	return
-}
-
-type ShortLevelInfo struct {
-	LevelId     int32
-	LevelNumber int8
-	LevelName   string
-	Dismissed   bool
-	IsPassed    bool
-	Task        string
-	LevelAction string
-}
-
-type LevelsList []ShortLevelInfo
-
-func (l *LevelsList) Len() int {
-	return len(*l)
-}
-
-type LevelResponse struct {
-	Level  *LevelInfo
-	Levels *LevelsList
-}
-
 type Codes struct {
-	replyTo                     telebot.Message
-	correct, incorrect, notSent []string
+	Message                     telebot.Message
+	Correct, Incorrect, NotSent []string
 }
 
 func (codes *Codes) ToText() (result string) {
-	if len(codes.correct) > 0 {
-		result = fmt.Sprintf(CorrectAnswerString, strings.Join(codes.correct, ", "))
+	if len(codes.Correct) > 0 {
+		result = fmt.Sprintf(CorrectAnswerString, strings.Join(codes.Correct, ", "))
 	}
-	if len(codes.incorrect) > 0 {
-		result += fmt.Sprintf(IncorrectAnswerString, strings.Join(codes.incorrect, ", "))
+	if len(codes.Incorrect) > 0 {
+		result += fmt.Sprintf(IncorrectAnswerString, strings.Join(codes.Incorrect, ", "))
 	}
-	if len(codes.notSent) > 0 {
-		result += fmt.Sprintf(NotSentAnswersString, strings.Join(codes.notSent, ", "))
+	if len(codes.NotSent) > 0 {
+		result += fmt.Sprintf(NotSentAnswersString, strings.Join(codes.NotSent, ", "))
 	}
 	return
 }
 
 func (codes *Codes) ReplyTo() telebot.Message {
-	return codes.replyTo
+	return codes.Message
 }
 
 //
 // Code related types
 //
 type codeRequest struct {
-	LevelId     int32 `json:"LevelId"`
+	LevelID     int32 `json:"LevelId"`
 	LevelNumber int8  `json:"LevelNumber"`
 }
 
@@ -405,3 +281,15 @@ type SendBonusCodeRequest struct {
 	codeRequest
 	LevelAction string `json:"BonusAction.Answer"`
 }
+
+// // GameLevel structure that represents level of the game, it contains level information and
+// // extracted additional information such as coordinates, images, etc.
+// type GameLevel struct {
+// 	Level  *LevelInfo
+// 	Coords Coordinates
+// 	Images Images
+// }
+
+// func (gl *GameLevel) GetLevelTask() string {
+// 	return gl.Level.GetLevelTask()
+// }

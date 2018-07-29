@@ -5,28 +5,31 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	"github.com/bonya_bot/en"
 )
 
+// CoordinatesResponse represent the response that is sent to the user
 type CoordinatesResponse struct {
-	LevelNumber int8        `json:"level"`
-	Coords      Coordinates `json:"coordinates"`
+	LevelNumber int8           `json:"level"`
+	Coords      en.Coordinates `json:"coordinates"`
 }
 
-func getCoordinates(w http.ResponseWriter, r *http.Request, en *EnAPI) {
+func getCoordinates(w http.ResponseWriter, r *http.Request, engine *en.API) {
 	var (
-		response CoordinatesResponse = CoordinatesResponse{}
+		response = CoordinatesResponse{}
 		buf      bytes.Buffer
 	)
 
 	log.Print("Get coordinates request accepted")
 
-	if en.CurrentLevel != nil {
-		response.LevelNumber = en.CurrentLevel.Number
+	if engine.CurrentLevel != nil {
+		response.LevelNumber = engine.CurrentLevel.Number
 		//log.Printf("%p", &en.CurrentLevel.Coords)
-		_, response.Coords = ReplaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
-		for _, hi := range en.CurrentLevel.Helps {
+		_, response.Coords = en.ExtractCoordinates(engine.CurrentLevel.Tasks[0].TaskText)
+		for _, hi := range engine.CurrentLevel.Helps {
 			if hi.HelpText != "" {
-				_, coords := ReplaceCoordinates(hi.HelpText)
+				_, coords := en.ExtractCoordinates(hi.HelpText)
 				response.Coords = append(response.Coords, coords...)
 			}
 		}
@@ -39,18 +42,18 @@ func getCoordinates(w http.ResponseWriter, r *http.Request, en *EnAPI) {
 	w.Write(buf.Bytes())
 }
 
-func makeHandler(fn func(http.ResponseWriter, *http.Request, *EnAPI), en *EnAPI) func(http.ResponseWriter, *http.Request) {
+func makeHandler(fn func(http.ResponseWriter, *http.Request, *en.API), en *en.API) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fn(w, r, en)
 	}
 }
 
-func initHandlers(en *EnAPI) {
+func initHandlers(en *en.API) {
 	log.Print("Adding enpoint handlers...")
 	http.HandleFunc("/coords", makeHandler(getCoordinates, en))
 }
 
-func startServer(en *EnAPI) {
+func startServer(en *en.API) {
 	initHandlers(en)
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }

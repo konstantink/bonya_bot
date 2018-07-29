@@ -1,31 +1,31 @@
-package main
+package en
 
 import (
 	"bytes"
 	"fmt"
-	//"github.com/tucnak/telebot"
-	//"gopkg.in/telegram-bot-api.v4"
-	//"io"
 	"log"
-	//"net/http"
-	//"os"
-	//"path"
 	"regexp"
 	"strconv"
-	"time"
-	//"io/ioutil"
-	"github.com/tucnak/telebot"
 	"strings"
+	"time"
+
+	"github.com/golang-collections/collections/stack"
+	"golang.org/x/net/html"
 )
 
-type EnvConfig struct {
-	BotToken     string `envconfig:"bot_token"`
-	GameId       int32  `envconfig:"game_id"`
-	EngineDomain string `envconfig:"engine_domain"`
-	MainChat     int64  `envconfig:"main_chat"`
-	User         string
-	Password     string
+// Tag string type that corresponds to the html tags
+type Tag struct {
+	Tag   string
+	Attrs map[string]string
 }
+
+const (
+	iTag      string = "i"
+	bTag      string = "b"
+	strongTag string = "strong"
+	scriptTag string = "script"
+	aTag      string = "a"
+)
 
 type Coordinate struct {
 	Lat            float64 `json:"lattitude"`
@@ -35,170 +35,208 @@ type Coordinate struct {
 type Coordinates []Coordinate
 
 func (c Coordinate) String() (text string) {
-	text = fmt.Sprintf("%f,%f", c.Lat, c.Lon)
+	text = fmt.Sprintf("%s (%f, %f)", c.OriginalString, c.Lat, c.Lon)
 	return
 }
 
+// Image stores data for the images in the text, e.g. URL to download the image,
+// Filepath - path where file was downloaded
 type Image struct {
-	url     string
-	caption string
+	URL      string
+	Caption  string
+	Filepath string
 }
 
+// Images - array of Image objects
 type Images []Image
 
-type BotMessage struct {
-	msg string
-}
-
-func NewBotMessage(msg string) *BotMessage {
-	return &BotMessage{msg}
-}
-
-func (bm *BotMessage) ToText() string {
-	return bm.msg
-}
-
-func (bm *BotMessage) ReplyTo() (message telebot.Message) {
-	return
-}
-
-func FailOnError(err error, msg string) {
-	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
-		panic(fmt.Sprintf("%s: %s", msg, err))
+func extractCoordinates(text string, re *regexp.Regexp) (string, Coordinates) {
+	var (
+		result = text
+		mr     = re.FindAllStringSubmatch(text, -1)
+		coords = Coordinates{}
+	)
+	if len(mr) > 0 {
+		for _, item := range mr {
+			lon, _ := strconv.ParseFloat(item[1], 64)
+			lat, _ := strconv.ParseFloat(item[2], 64)
+			if len(item) > 3 {
+				coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[3]})
+			} else {
+				coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: item[0]})
+			}
+			result = regexp.MustCompile(item[0]).ReplaceAllLiteralString(result, "#coords#")
+		}
 	}
+
+	return result, coords
 }
 
-func ReplaceCoordinates(text string) (string, Coordinates) {
+// ExtractCoordinates extracts coordinates from the given text and returns the updated string
+// with replaced coordinates and the list of coordinates
+func ExtractCoordinates(text string) (string, Coordinates) {
 	var (
 		// <a href="geo:49.976136, 36.267256">49.976136, 36.267256</a>
-		geoHrefRe *regexp.Regexp = regexp.MustCompile("<a.+?href=\"geo:(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})\">(.+?)</a>")
+		geoHrefRe = regexp.MustCompile("<a.+?href=\"geo:(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})\">(.+?)</a>")
 		// <a href="https://www.google.com.ua/maps/@50.0363257,36.2120039,19z" target="blank">50.036435 36.211914</a>
-		hrefRe *regexp.Regexp = regexp.MustCompile("<a.+?href=\"https?://.+?(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,}).*?\">(.+?)</a>")
+		hrefRe = regexp.MustCompile("<a.+?href=\"https?://.+?(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,}).*?\">(.+?)</a>")
 		// 49.976136, 36.267256
-		numbersRe *regexp.Regexp = regexp.MustCompile("(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
+		numbersRe = regexp.MustCompile("(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
 
-		mr     [][]string
-		res    string      = text
-		coords Coordinates = make(Coordinates, 0, 0)
+		res       = text
+		coords    = Coordinates{}
+		tmpCoords Coordinates
 	)
 
-	log.Print("Replace coordinates in task")
-	mr = geoHrefRe.FindAllStringSubmatch(res, -1)
-	if len(mr) > 0 {
-		for _, item := range mr {
-			lon, _ := strconv.ParseFloat(item[1], 64)
-			lat, _ := strconv.ParseFloat(item[2], 64)
-			originalString, _ := ReplaceImages(item[3], "Picture")
-			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: ReplaceCommonTags(originalString)})
-			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
-		}
-	}
-
-	mr = hrefRe.FindAllStringSubmatch(res, -1)
-	if len(mr) > 0 {
-		for _, item := range mr {
-			lon, _ := strconv.ParseFloat(item[1], 64)
-			lat, _ := strconv.ParseFloat(item[2], 64)
-			originalString, _ := ReplaceImages(item[3], "Picture")
-			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: ReplaceCommonTags(originalString)})
-			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
-		}
-	}
-
-	mr = numbersRe.FindAllStringSubmatch(res, -1)
-	if len(mr) > 0 {
-		for _, item := range mr {
-			lon, _ := strconv.ParseFloat(item[1], 64)
-			lat, _ := strconv.ParseFloat(item[2], 64)
-			coords = append(coords, Coordinate{Lat: lon, Lon: lat, OriginalString: ReplaceCommonTags(item[0])})
-			res = regexp.MustCompile(item[0]).ReplaceAllLiteralString(res, "#coords#")
-		}
+	log.Print("[INFO] Extract coordinates from task text")
+	for _, re := range []*regexp.Regexp{geoHrefRe, hrefRe, numbersRe} {
+		res, tmpCoords = extractCoordinates(res, re)
+		coords = append(coords, tmpCoords...)
 	}
 
 	for _, coord := range coords {
 		res = strings.Replace(res, "#coords#", coord.OriginalString, 1)
 	}
+	if DEBUG {
+		log.Printf("[DEBUG] Found %d coordinates", len(coords))
+	}
 
 	return res, coords
 }
 
-func BlockTypeToString(typeId int8) string {
-	if typeId == 0 || typeId == 1 {
-		return "Игрок"
-	}
-	return "Команда"
-}
-
-func ReplaceImages(text string, caption string) (string, Images) {
-	log.Print("Replace images in task text")
+func extractImages(text string, re *regexp.Regexp, caption string, start int) (string, Images) {
 	var (
-		re     *regexp.Regexp = regexp.MustCompile("<img.+?src=\"\\s*(https?://.+?)\\s*\".*?>")
-		reA    *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(https?://.+?\\.(jpg|png|bmp))\\\\?\".*?>(.*?)</a>")
-		mr     [][]string     = re.FindAllStringSubmatch(text, -1)
-		mrA    [][]string     = reA.FindAllStringSubmatch(text, -1)
-		result string         = text
-		images Images         = make(Images, 0)
+		result = text
+		mr     = re.FindAllStringSubmatch(text, -1)
+		images = Images{}
 	)
-	//log.Printf("Before image replacing: %s", text)
 	if len(mr) > 0 {
-		//copy(result, []byte(text))
 		for i, item := range mr {
-			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
+			images = append(images, Image{URL: item[1], Caption: fmt.Sprintf("%s #%d", caption, start+i)})
 			result = regexp.MustCompile(regexp.QuoteMeta(item[0])).
-				ReplaceAllLiteralString(result, fmt.Sprintf("%s #%d", caption, i+1))
-			//ReplaceAllLiteralString(result, fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1]))
+				ReplaceAllLiteralString(result, fmt.Sprintf("%s #%d", caption, start+i))
 		}
-		//log.Printf("After image replacing: %s", text)
-		return result, images
-	}
-	if len(mrA) > 0 {
-		for i, item := range mrA {
-			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
-			result = regexp.MustCompile(regexp.QuoteMeta(item[0])).
-				ReplaceAllLiteralString(result, fmt.Sprintf("%s #%d", caption, i+1))
-			//ReplaceAllLiteralString(result, fmt.Sprintf("[%s #%d](%s)", caption, i+1, item[1]))
-		}
-		//log.Printf("After image replacing: %s", text)
-		return result, images
 	}
 	return result, images
 }
 
-func ExtractImages(text string, caption string) (images []Image) {
+// ExtractImages extracts images from the given text and returns the updated
+// version of the text and the list of images
+func ExtractImages(text string, caption string) (string, Images) {
 	var (
-		re  *regexp.Regexp = regexp.MustCompile("<img.+?src=\\\\?\"(https?://.+?)\\\\?\".*?>")
-		reA *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(https?://.+?\\.(jpg|png|bmp))\\\\?\".*?>")
-		mr  [][]string     = re.FindAllStringSubmatch(text, -1)
-		mrA [][]string     = reA.FindAllStringSubmatch(text, -1)
+		reImg     = regexp.MustCompile("<img.+?src=\"\\s*(https?://.+?)\\s*\".*?>")
+		reA       = regexp.MustCompile("<a.+?href=\\\\?\"(https?://.+?\\.(jpg|png|bmp))\\\\?\".*?>(.*?)</a>")
+		result    = text
+		images    = Images{}
+		tmpImages Images
 	)
-	images = make([]Image, 0)
-	if len(mr) > 0 {
-		for i, item := range mr {
-			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
-		}
-	} else if len(mrA) > 0 {
-		for i, item := range mrA {
-			images = append(images, Image{url: item[1], caption: fmt.Sprintf("%s #%d", caption, i+1)})
-		}
+	//log.Printf("Before image replacing: %s", text)
+	log.Print("[INFO] Extract images from task text")
+	for _, re := range []*regexp.Regexp{reImg, reA} {
+		result, tmpImages = extractImages(result, re, caption, len(images)+1)
+		images = append(images, tmpImages...)
 	}
-	return
+	if DEBUG {
+		log.Printf("[DEBUG] Found %d images", len(images))
+	}
+	return result, images
 }
 
-func ReplaceCommonTags(text string) string {
-	log.Printf("Replace html tags %s", text)
+// ReplaceHTMLTags finds all html tags and removes them. Some tags like bold, italic are replaed with
+// makrkups for telegram
+func ReplaceHTMLTags(text string) string {
 	var (
-		reBr     *regexp.Regexp = regexp.MustCompile("<br\\s*/?>")
-		reHr     *regexp.Regexp = regexp.MustCompile("<hr.*?/?>")
-		reP      *regexp.Regexp = regexp.MustCompile("<p>([^ ]+?)</p>")
-		reBold   *regexp.Regexp = regexp.MustCompile("<b.*?/?>((?s:.*?))</b>")
-		reStrong *regexp.Regexp = regexp.MustCompile("<strong.*?>(.*?)</strong>")
-		reItalic *regexp.Regexp = regexp.MustCompile("<i>((?s:.+?))</i>")
-		reSpan   *regexp.Regexp = regexp.MustCompile("<span.*?>(.*?)</span>")
-		reCenter *regexp.Regexp = regexp.MustCompile("<center>((?s:.*?))</center>")
-		reFont   *regexp.Regexp = regexp.MustCompile("<font.+?color\\s*=\\\\?[\"«]?#?(\\w+)\\\\?[\"»]?.*\\s*?>((?s:.*))(</font>)?")
-		reA      *regexp.Regexp = regexp.MustCompile("<a.+?href=\\\\?\"(.+?)\\\\?\".*?>(.+?)</a>")
-		res      string         = text
+		parser    = html.NewTokenizer(strings.NewReader(text))
+		tagStack  = stack.New()
+		textToTag = map[int]string{}
+	)
+
+	for {
+		node := parser.Next()
+		switch node {
+		case html.ErrorToken:
+			result := strings.Replace(textToTag[0], "&nbsp;", " ", -1)
+			return result
+		case html.TextToken:
+			t := string(parser.Text())
+			textToTag[tagStack.Len()] = strings.Join([]string{textToTag[tagStack.Len()], t}, "")
+		case html.StartTagToken:
+			tagName, hasAttr := parser.TagName()
+			if string(tagName) == scriptTag {
+				// We can skip script tags, as they are invisible for the user, but we can indicate that there are
+				// scripts in the task. To skip tag, it is necessary to call Next() two times:
+				// 1) returns TextToken with the script body
+				// 2) returns EndTagToken for the closed script tag
+				// Usually script tag doesn't have any neste tags, so this aproach should work
+				log.Printf("[INFO] Skipping script tag")
+				parser.Next()
+				parser.Next()
+				continue
+			}
+			tag := Tag{Tag: string(tagName), Attrs: map[string]string{}}
+			if hasAttr {
+				for {
+					attr, val, moreAttr := parser.TagAttr()
+					if DEBUG {
+						log.Printf("[DEBUG] Found attr %s", attr)
+					}
+					tag.Attrs[string(attr)] = string(val)
+					if !moreAttr {
+						break
+					}
+				}
+			}
+			if DEBUG {
+				log.Printf("[DEBUG] Found tag %q", tag)
+			}
+			tagStack.Push(tag)
+		case html.EndTagToken:
+			var (
+				addText      string
+				tagNo        = tagStack.Len()
+				tag          = tagStack.Pop()
+				closedTag, _ = parser.TagName()
+			)
+			if tag.(Tag).Tag != string(closedTag) {
+				log.Printf("[WARNING] Found closed tag %q but expected %q", closedTag, tag)
+				continue
+			}
+			if DEBUG {
+				log.Printf("[DEBUG] Found end of tag %q", closedTag)
+			}
+			switch tag.(Tag).Tag {
+			case iTag:
+				addText = fmt.Sprintf("_%s_", textToTag[tagNo])
+			case bTag, strongTag:
+				addText = fmt.Sprintf("*%s*", textToTag[tagNo])
+			case aTag:
+				// if strings.Compare(string(attr), "href") == 0 {
+				addText = fmt.Sprintf("[%s](%s)", textToTag[tagNo], tag.(Tag).Attrs["href"])
+				// }
+			default:
+				addText = textToTag[tagNo]
+			}
+			textToTag[tagStack.Len()] = strings.Join([]string{textToTag[tagStack.Len()], addText}, "")
+			delete(textToTag, tagNo)
+		}
+	}
+}
+
+// ReplaceCommonTags deprecated - should be removed!!!
+func ReplaceCommonTags(text string) string {
+	log.Print("Replace html tags")
+	var (
+		reBr     = regexp.MustCompile("<br\\s*/?>")
+		reHr     = regexp.MustCompile("<hr.*?/?>")
+		reP      = regexp.MustCompile("<p>([^ ]+?)</p>")
+		reBold   = regexp.MustCompile("<b.*?/?>((?s:.*?))</b>")
+		reStrong = regexp.MustCompile("<strong.*?>(.*?)</strong>")
+		reItalic = regexp.MustCompile("<i>((?s:.+?))</i>")
+		reSpan   = regexp.MustCompile("<span.*?>(.*?)</span>")
+		reCenter = regexp.MustCompile("<center>((?s:.*?))</center>")
+		reFont   = regexp.MustCompile("<font.+?color\\s*=\\\\?[\"«]?#?(\\w+)\\\\?[\"»]?.*?>((?s:.*?))</font>")
+		reA      = regexp.MustCompile("<a.+?href=\\\\?\"(.+?)\\\\?\".*?>(.+?)</a>")
+		res      = text
 	)
 
 	res = strings.Replace(text, "_", "\\_", -1)
@@ -266,20 +304,11 @@ func ReplaceCommonTags(text string) string {
 	return string(res)
 }
 
-//func GetBotCommandEntity(m *tgbotapi.Message) *tgbotapi.MessageEntity {
-//	for _, entity := range *m.Entities {
-//		if entity.Type == "bot_command" {
-//			return &entity
-//		}
-//	}
-//	return nil
-//}
-
-func isNewLevel(oldLevel *LevelInfo, newLevel *LevelInfo) bool {
-	if oldLevel == nil {
-		return true
+func BlockTypeToString(typeId int8) string {
+	if typeId == 0 || typeId == 1 {
+		return "Игрок"
 	}
-	return oldLevel.LevelId != newLevel.LevelId
+	return "Команда"
 }
 
 func PrettyTimePrint(d time.Duration, nominative bool) (res *bytes.Buffer) {

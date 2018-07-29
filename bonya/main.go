@@ -15,54 +15,60 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bonya_bot/en"
 	"github.com/kelseyhightower/envconfig"
-	"github.com/tucnak/telebot"
+	tb "github.com/tucnak/telebot"
 )
+
+// DEBUG flag to dump some additional info
+var DEBUG = true
 
 //type BotCommand int8
 
-type SendInfo struct {
-	Recepient telebot.Recipient
-	Text      string
-	Options   *telebot.SendOptions
-}
-
-type PhotoInfo struct {
-	Recepient telebot.Recipient
-	Photo     *telebot.Photo
-	Options   *telebot.SendOptions
-}
-
-type CoordInfo struct {
-	Recepient telebot.Recipient
-	Location  *telebot.Venue
-	Options   *telebot.SendOptions
-}
+// type SendInfo struct {
+// 	Recepient telebot.Recipient
+// 	Text      string
+// 	Options   *telebot.SendOptions
+// }
+//
+// type PhotoInfo struct {
+// 	Recepient telebot.Recipient
+// 	Photo     *telebot.Photo
+// 	Options   *telebot.SendOptions
+// }
+//
+// type CoordInfo struct {
+// 	Recepient telebot.Recipient
+// 	Location  *telebot.Venue
+// 	Options   *telebot.SendOptions
+// }
 
 var (
-	quit           chan struct{}
-	sendInfoChan   chan ToChat
-	photoInfoChan  chan *PhotoInfo
-	coordsInfoChan chan *CoordInfo
-	levelInfoChan  chan *LevelInfo
+	quit chan struct{}
 
-	mainChat telebot.Chat
+	// sendInfoChan   chan en.ToChat
+	// photoInfoChan  chan *PhotoInfo
+	// coordsInfoChan chan *CoordInfo
+	levelInfoChan chan *en.Level
+	messageChan   chan MessageSender
+
+	mainChat tb.Chat
 )
 
 // Helpers
 
-func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
+func SendImageFromUrl(recipient tb.Recipient, images en.Images) {
 	var (
 		file *os.File
 	)
 	for _, img := range images {
 
-		resp, err := http.Get(img.url)
+		resp, err := http.Get(img.URL)
 		if err != nil {
 			log.Println("Can't download image:", err)
 		}
 
-		filename := fmt.Sprintf("/tmp/%s", path.Base(img.url))
+		filename := fmt.Sprintf("/tmp/%s", path.Base(img.URL))
 		fileInfo, err := os.Stat(filename)
 		if err == nil && fileInfo.Size() > 0 {
 			file, err = os.Open(filename)
@@ -81,26 +87,34 @@ func SendImageFromUrl(recepient telebot.Recipient, images []Image) {
 				log.Fatal(err)
 			}
 		}
-		telebotFile, _ := telebot.NewFile(file.Name())
+		telebotFile, _ := tb.NewFile(file.Name())
 		log.Printf("Sending photo to the channel (%s)", file.Name())
-		thumbnail := telebot.Thumbnail{File: telebotFile, Width: 120, Height: 120}
-		photoInfoChan <- &PhotoInfo{Recepient: recepient, Photo: &telebot.Photo{File: telebotFile,
-			Thumbnail: thumbnail, Caption: img.caption}, Options: nil}
+		thumbnail := tb.Thumbnail{File: telebotFile, Width: 120, Height: 120}
+		messageChan <- PhotoMessage{Message{Recipient: recipient, Options: nil},
+			&tb.Photo{File: telebotFile, Thumbnail: thumbnail, Caption: img.Caption}}
+		// photoInfoChan <- &PhotoInfo{Recepient: recepient, Photo: &telebot.Photo{File: telebotFile,
+		// 	Thumbnail: thumbnail, Caption: img.Caption}, Options: nil}
 	}
 }
 
-func SendCoords(recepient telebot.Recipient, coords Coordinates) {
+func SendCoords(recipient tb.Recipient, coords en.Coordinates) {
 	for _, coord := range coords {
-		coordsInfoChan <- &CoordInfo{Recepient: recepient,
-			Location: &telebot.Venue{Location: telebot.Location{Latitude: float32(coord.Lat), Longitude: float32(coord.Lon)},
-				Title: coord.OriginalString},
-			Options: nil}
+		messageChan <- LocationMessage{Message{recipient, nil},
+			&tb.Venue{Location: tb.Location{Latitude: float32(coord.Lat), Longitude: float32(coord.Lon)},
+				Title: coord.OriginalString}}
+		// coordsInfoChan <- &CoordInfo{Recepient: recepient,
+		// 	Location: &telebot.Venue{Location: telebot.Location{Latitude: float32(coord.Lat), Longitude: float32(coord.Lon)},
+		// 		Title: coord.OriginalString},
+		// 	Options: nil}
 	}
 }
 
-func IsBotCommand(m *telebot.Message) bool {
+// IsBotCommand returns true if the message is a bot command or false otherwise
+func IsBotCommand(m *tb.Message) bool {
 	for _, entity := range m.Entities {
-		log.Print("Entity:", entity)
+		if DEBUG {
+			log.Printf("[DEBUG] Entity type: %s; offset: %d; length: %d", entity.Type, entity.Offset, entity.Length)
+		}
 		if entity.Type == "bot_command" {
 			return true
 		}
@@ -113,16 +127,16 @@ func IsBotCommand(m *telebot.Message) bool {
 
 ///////////////////////////////
 
-func processLevel(recepient telebot.Recipient, en *EnAPI) {
+func processLevel(recepient tb.Recipient, engine *en.API) {
 	var (
-		retries   int
-		levelInfo *LevelInfo
+		retries   = 0
+		levelInfo *en.Level
 		err       error
 	)
 
 	for {
-		retries = 0
-		levelInfo, err = en.GetLevelInfo()
+		// retries = 0
+		levelInfo, err = engine.GetLevelInfo()
 		if err != nil {
 			if err.Error() == "No level info" {
 				return
@@ -133,7 +147,7 @@ func processLevel(recepient telebot.Recipient, en *EnAPI) {
 			retries++
 			time.Sleep(time.Second)
 			log.Printf("Attempt #%d. Can't get level info: %s", retries, err)
-			en.Login()
+			engine.Login()
 			continue
 		}
 		break
@@ -142,24 +156,25 @@ func processLevel(recepient telebot.Recipient, en *EnAPI) {
 		log.Println("Can't find level information")
 		return
 	}
-	en.CurrentLevel = levelInfo
+	engine.CurrentLevel = levelInfo
 
-	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.Coords =
-		ReplaceCoordinates(en.CurrentLevel.Tasks[0].TaskText)
+	engine.CurrentLevel.Tasks[0].TaskText, engine.CurrentLevel.Coords =
+		en.ExtractCoordinates(engine.CurrentLevel.Tasks[0].TaskText)
 
-	en.CurrentLevel.Tasks[0].TaskText, en.CurrentLevel.Images =
-		ReplaceImages(en.CurrentLevel.Tasks[0].TaskText, "Картинка")
+	engine.CurrentLevel.Tasks[0].TaskText, engine.CurrentLevel.Images =
+		en.ExtractImages(engine.CurrentLevel.Tasks[0].TaskText, "Картинка")
 
-	en.CurrentLevel.Tasks[0].TaskText = ReplaceCommonTags(en.CurrentLevel.Tasks[0].TaskText)
+	engine.CurrentLevel.Tasks[0].TaskText = en.ReplaceCommonTags(engine.CurrentLevel.Tasks[0].TaskText)
 
-	sendInfoChan <- en.CurrentLevel
-	SendImageFromUrl(mainChat, en.CurrentLevel.Images)
-	SendCoords(mainChat, en.CurrentLevel.Coords)
+	messageChan <- NewTextMessage(mainChat, engine.CurrentLevel.ToText(), tb.Message{})
+	// sendInfoChan <- engine.CurrentLevel
+	SendImageFromUrl(mainChat, engine.CurrentLevel.Images)
+	SendCoords(mainChat, engine.CurrentLevel.Coords)
 	//log.Printf("In func %p", &en.CurrentLevel.Coords)
 	//SendLevelInfo(recepient, en.CurrentLevel)
 }
 
-func startWatching(en *EnAPI) {
+func startWatching(engine *en.API) {
 	var (
 		ticker *time.Ticker
 	)
@@ -178,7 +193,7 @@ func startWatching(en *EnAPI) {
 			select {
 			case <-ticker.C:
 				go func() {
-					levelInfo, err := en.GetLevelInfo()
+					levelInfo, err := engine.GetLevelInfo()
 					if err != nil {
 						log.Println("Error:", err)
 						return
@@ -196,7 +211,7 @@ func stopWatching() {
 	close(quit)
 }
 
-func setChat(chat telebot.Chat) {
+func setChat(chat tb.Chat) {
 	var mu sync.RWMutex
 
 	mu.Lock()
@@ -205,10 +220,10 @@ func setChat(chat telebot.Chat) {
 	mainChat = chat
 }
 
-func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
+func sendCode(engine *en.API, codesToSend []string, replyTo tb.Message) {
 	var (
 		mu    sync.RWMutex
-		codes Codes = Codes{replyTo: replyTo}
+		codes = en.Codes{Message: replyTo}
 	)
 
 	mu.Lock()
@@ -223,30 +238,35 @@ func sendCode(en *EnAPI, codesToSend []string, replyTo telebot.Message) {
 	for _, code := range codesToSend {
 		log.Printf("Sending code %q to EN engine", code)
 		// TODO: 3) Do we need to send codes that were blocked ???
-		if en.CurrentLevel.IsPassed || en.CurrentLevel.Dismissed ||
-			(en.CurrentLevel.BlockDuration > 0 && en.CurrentLevel.HasAnswerBlockRule) {
+		if engine.CurrentLevel.IsPassed || engine.CurrentLevel.Dismissed ||
+			(engine.CurrentLevel.BlockDuration > 0 && engine.CurrentLevel.HasAnswerBlockRule) {
 			log.Printf("Level is blocked, can't send code %q", code)
-			codes.notSent = append(codes.notSent, code)
+			codes.NotSent = append(codes.NotSent, code)
 			continue
 		}
 
-		lvl, err := en.SendCode(code)
+		lvl, err := engine.SendCode(code)
 		//log.Println(lvl.HasAnswerBlockRule)
 		if err != nil {
 			log.Println("Failed to send code:", err)
 		}
 		if lvl.MixedActions[0].IsCorrect {
-			codes.correct = append(codes.correct, code)
+			codes.Correct = append(codes.Correct, code)
 		} else {
-			codes.incorrect = append(codes.incorrect, code)
+			codes.Incorrect = append(codes.Incorrect, code)
 		}
 		levelInfoChan <- lvl
 		time.Sleep(500 * time.Millisecond)
 	}
-	sendInfoChan <- &codes
+	// sendInfoChan <- &codes
+	messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+		Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+			DisableWebPagePreview: true,
+			ReplyTo:               codes.ReplyTo()}},
+		Text: codes.ToText()}
 }
 
-func extractCommandAndArguments(m *telebot.Message) (command string, args string) {
+func extractCommandAndArguments(m tb.Message) (command string, args string) {
 	if len(m.Entities) > 0 {
 		ent := m.Entities[0]
 		command = m.Text[ent.Offset+1 : ent.Length]
@@ -259,55 +279,64 @@ func extractCommandAndArguments(m *telebot.Message) (command string, args string
 			command = command[:idx]
 		}
 	} else {
-		re := regexp.MustCompile("^/([А-я]+)\\s*(.*)")
-		log.Printf("Analyzing command: %s", m.Text)
+		re := regexp.MustCompile("/([А-я]+)\\s*(.*)")
 		result := re.FindStringSubmatch(m.Text)
-		if len(result) == 0{
-			log.Printf("[WARNING] Can't extract command and arguments from %s", m.Text)
-			return
-		}
-		if len(result) > 2 {
-			command, args = result[1], result[2]
-		} else {
-			command = result[1]
-			args = ""
-		}
+		command, args = result[1], result[2]
 	}
 	return
 }
 
-func sectorsLeft(levelInfo *LevelInfo) {
-	var sectors = NewExtendedLevelSectors(levelInfo)
-	sendInfoChan <- sectors
+func sectorsLeft(levelInfo *en.Level) {
+	var sectors = en.NewExtendedLevelSectors(levelInfo)
+	// sendInfoChan <- sectors
+	messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+		Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+			DisableWebPagePreview: true,
+			ReplyTo:               sectors.ReplyTo()}},
+		Text: sectors.ToText()}
 }
 
-func timeLeft(levelInfo *LevelInfo) {
-	var msg = fmt.Sprintf(TimeLeftString, PrettyTimePrint(levelInfo.TimeoutSecondsRemain, true))
-	sendInfoChan <- NewBotMessage(msg)
+func timeLeft(levelInfo *en.Level) {
+	var msg = fmt.Sprintf(en.TimeLeftString, en.PrettyTimePrint(levelInfo.TimeoutSecondsRemain, true))
+	// sendInfoChan <- NewBotMessage(msg)
+	messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+		Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+			DisableWebPagePreview: true}},
+		Text: msg}
 }
 
-func listHelps(levelInfo *LevelInfo) {
+func listHelps(levelInfo *en.Level) {
 	for _, helpInfo := range levelInfo.Helps {
 		//log.Printf("==========================================: %s", helpInfo.HelpText)
 		helpInfo.ProcessText()
-		sendInfoChan <- &helpInfo
-		SendImageFromUrl(mainChat, helpInfo.Images)
-		SendCoords(mainChat, helpInfo.Coords)
+		// sendInfoChan <- &helpInfo
+		messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+			Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+				DisableWebPagePreview: true,
+				ReplyTo:               helpInfo.ReplyTo()}},
+			Text: helpInfo.ToText()}
+		//SendImageFromUrl(mainChat, helpInfo.images)
+		//SendCoords(mainChat, helpInfo.coords)
 	}
 }
 
-func timeHelpLeft(levelInfo *LevelInfo) {
+func timeHelpLeft(levelInfo *en.Level) {
 	for _, help := range levelInfo.Helps {
 		if help.RemainSeconds > 0 {
-			var msg = fmt.Sprintf(HelpTimeLeft, help.Number, PrettyTimePrint(help.RemainSeconds, false))
-			sendInfoChan <- NewBotMessage(msg)
+			var msg = fmt.Sprintf(en.HelpTimeLeft, help.Number, en.PrettyTimePrint(help.RemainSeconds, false))
+			// sendInfoChan <- NewBotMessage(msg)
+			messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+				Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+					DisableWebPagePreview: true}},
+				Text: msg}
 			return
 		}
 	}
-	sendInfoChan <- NewBotMessage("Подсказок на уровне больше нет")
+	// sendInfoChan <- NewBotMessage("Подсказок на уровне больше нет")
+	messageChan <- NewTextMessage(mainChat, "Подсказок на уровне больше нет", tb.Message{})
 }
 
-func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
+func ProcessBotCommand(m tb.Message, en *en.API, bot *tb.Bot) {
 	var (
 		command     string
 		args        string
@@ -323,24 +352,46 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 	log.Printf("Command: %s, args: %s", command, args)
 
 	switch commandCode {
-	case InfoCommand:
-		//if m.Sender.Username == "kkolesnikov" && m.Chat == nil {
-		//	processLevel(m.Sender, en)
-		//} else {
-		processLevel(m.Chat, en)
-		//log.Printf("After func %p", &en.CurrentLevel.Coords)
-		//}
+	// case StartCommand:
+	// 	var (
+	// 		kbQuest        = tb.KeyboardButton{Text: "quest.ua", Data: "http://quest.ua"}
+	// 		kbKharkovQuest = tb.KeyboardButton{Text: "kharkov.quest.ua", Data: "http://kharkov.quest.ua"}
+	// 		kbKharkovEn    = tb.KeyboardButton{Text: "kharkov.en.cx", Data: "http://kharkov.en.cx"}
+	// 	)
+	// 	// var keyboard = tb.InlineKeyboardMarkup{}
+	// 	// var reply = tb.ReplyMarkup{InlineKeyboard: }
+	// 	var kbMarkup = [][]tb.KeyboardButton{{kbKharkovQuest, kbKharkovEn}, {kbQuest}}
+	// 	err := bot.SendMessage(m.Chat, "Выберите домен",
+	// 		&tb.SendOptions{ReplyTo: m,
+	// 			ReplyMarkup: tb.ReplyMarkup{
+	// 				Selective:       true,
+	// 				ForceReply:      true,
+	// 				ResizeKeyboard:  true,
+	// 				OneTimeKeyboard: true,
+	// 				InlineKeyboard:  kbMarkup,
+	// 				// CustomKeyboard:  [][]string{[]string{"kharkov.en.cx", "kharkov.quest.ua"}, []string{"quest.ua"}},
+	// 			}})
+	// 	if err != nil {
+	// 		log.Printf("ERROR: %s", err)
+	// 	}
+	// case InfoCommand:
+	// 	//if m.Sender.Username == "kkolesnikov" && m.Chat == nil {
+	// 	//	processLevel(m.Sender, en)
+	// 	//} else {
+	// 	processLevel(m.Chat, en)
+	// 	//log.Printf("After func %p", &en.CurrentLevel.Coords)
+	// 	//}
 	case WatchCommand:
 		startWatching(en)
 	case StopWatchingCommand:
 		stopWatching()
-	case SetChatIdCommand:
+	case SetChatIDCommand:
 		setChat(m.Chat)
 	case CodeCommand:
 		re := regexp.MustCompile("\\s+")
-		sendCode(en, re.Split(args, -1), *m)
+		sendCode(en, re.Split(args, -1), m)
 	case CompositeCodeCommand:
-		sendCode(en, []string{args}, *m)
+		sendCode(en, []string{args}, m)
 	case SectorsLeftCommand:
 		sectorsLeft(en.CurrentLevel)
 	case TimeLeftCommand:
@@ -352,14 +403,19 @@ func ProcessBotCommand(m *telebot.Message, en *EnAPI) {
 	}
 }
 
-func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
+func CheckHelps(oldLevel *en.Level, newLevel *en.Level) {
 	//log.Println("Check helps state")
-	for i, _ := range oldLevel.Helps {
+	for i := range oldLevel.Helps {
 		if oldLevel.Helps[i].Number == newLevel.Helps[i].Number {
 			if oldLevel.Helps[i].HelpText == "" && newLevel.Helps[i].HelpText != "" {
 				log.Println("New hint is available")
 				newLevel.Helps[i].ProcessText()
-				sendInfoChan <- &newLevel.Helps[i]
+				// sendInfoChan <- &newLevel.Helps[i]
+				messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+					Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+						DisableWebPagePreview: true,
+						ReplyTo:               newLevel.Helps[i].ReplyTo()}},
+					Text: newLevel.Helps[i].ToText()}
 				SendCoords(mainChat, newLevel.Helps[i].Coords)
 				SendImageFromUrl(mainChat, newLevel.Helps[i].Images)
 			}
@@ -368,9 +424,9 @@ func CheckHelps(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	//log.Println("Finish checking changes in Helps section")
 }
 
-func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
+func CheckSectors(oldLevel *en.Level, newLevel *en.Level) {
 	//log.Println("Start checking changes in Sectors section")
-	for i, _ := range oldLevel.Sectors {
+	for i := range oldLevel.Sectors {
 		if oldLevel.Sectors[i].Name == newLevel.Sectors[i].Name {
 			if oldLevel.Sectors[i].IsAnswered != newLevel.Sectors[i].IsAnswered {
 				log.Printf("Sector %q is closed, %d sectors left to close",
@@ -378,7 +434,12 @@ func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
 				// TODO: Replace with constant or parameter from configuration
 				if newLevel.SectorsLeftToClose <= 3 {
 					//sectorChangeChan <- ExtendedSectorInfo{
-					sendInfoChan <- NewExtendedLevelSectors(newLevel)
+					// sendInfoChan <- en.NewExtendedLevelSectors(newLevel)
+					messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+						Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+							DisableWebPagePreview: true,
+							ReplyTo:               en.NewExtendedLevelSectors(newLevel).ReplyTo()}},
+						Text: en.NewExtendedLevelSectors(newLevel).ToText()}
 				}
 			}
 		}
@@ -386,15 +447,20 @@ func CheckSectors(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	//log.Println("Finish checking changes in Sectors section")
 }
 
-func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
-	for i, _ := range oldLevel.Bonuses {
+func CheckBonuses(oldLevel *en.Level, newLevel *en.Level) {
+	for i := range oldLevel.Bonuses {
 		if oldLevel.Bonuses[i].Name == newLevel.Bonuses[i].Name {
-			if oldLevel.Bonuses[i].IsAnswered != newLevel.Bonuses[i].IsAnswered || (oldLevel.Bonuses[i].SecondsToStart != newLevel.Bonuses[i].SecondsToStart && newLevel.Bonuses[i].SecondsToStart == 0) {
+			if oldLevel.Bonuses[i].IsAnswered != newLevel.Bonuses[i].IsAnswered {
 				log.Printf("Bonus %q is available, code %q", newLevel.Bonuses[i].Name,
 					newLevel.Bonuses[i].Answer["Answer"])
-				if newLevel.Bonuses[i].Help != "" || newLevel.Bonuses[i].Task != "" {
+				if newLevel.Bonuses[i].Help != "" {
 					newLevel.Bonuses[i].ProcessText()
-					sendInfoChan <- &newLevel.Bonuses[i]
+					// sendInfoChan <- &newLevel.Bonuses[i]
+					messageChan <- TextMessage{Message: Message{Recipient: mainChat,
+						Options: &tb.SendOptions{ParseMode: tb.ModeMarkdown,
+							DisableWebPagePreview: true,
+							ReplyTo:               newLevel.Bonuses[i].ReplyTo()}},
+						Text: newLevel.Bonuses[i].ToText()}
 					SendCoords(mainChat, newLevel.Bonuses[i].Coords)
 					SendImageFromUrl(mainChat, newLevel.Bonuses[i].Images)
 				}
@@ -403,15 +469,15 @@ func CheckBonuses(oldLevel *LevelInfo, newLevel *LevelInfo) {
 	}
 }
 
-func CheckLevelTimeLeft(fsm *LevelTimeCheckingMachine, li *LevelInfo) {
+func CheckLevelTimeLeft(fsm *LevelTimeCheckingMachine, li *en.Level) {
 	//log.Printf("FUNC fsm: %d", fsm.CurrentState().(TimeChecker).compareTime)
-	if fsm.CheckTime(li.TimeoutSecondsRemain * time.Second) {
+	if fsm.Process(li.TimeoutSecondsRemain * time.Second) {
 		timeLeft(li)
 		//log.Printf(TimeLeftString, PrettyTimePrint(li.TimeoutSecondsRemain, true))
 	}
 }
 
-func CheckMixedActions(oldLevel *LevelInfo, newLevel *LevelInfo) {
+func CheckMixedActions(oldLevel *en.Level, newLevel *en.Level) {
 	log.Println("Start checking changes in MixedActions section")
 	sort.Sort(newLevel.MixedActions)
 	//fmt.Println(len(newLevel.MixedActions))
@@ -419,18 +485,20 @@ func CheckMixedActions(oldLevel *LevelInfo, newLevel *LevelInfo) {
 		if len(oldLevel.MixedActions) == 0 {
 			for _, item := range newLevel.MixedActions {
 				if item.IsCorrect {
-					sendInfoChan <- item
+					// sendInfoChan <- item
+					messageChan <- NewTextMessage(mainChat, item.ToText(), item.ReplyTo())
 				}
 			}
 		} else {
-			lastActionId := oldLevel.MixedActions[0].ActionId
+			lastActionID := oldLevel.MixedActions[0].ActionID
 			for _, item := range newLevel.MixedActions {
-				fmt.Println(item.ActionId, item.Answer, lastActionId)
-				if item.ActionId == lastActionId {
+				fmt.Println(item.ActionID, item.Answer, lastActionID)
+				if item.ActionID == lastActionID {
 					break
 				}
 				if item.IsCorrect {
-					sendInfoChan <- item
+					// sendInfoChan <- item
+					messageChan <- NewTextMessage(mainChat, item.ToText(), item.ReplyTo())
 				}
 			}
 		}
@@ -444,14 +512,15 @@ func CheckMixedActions(oldLevel *LevelInfo, newLevel *LevelInfo) {
 }
 
 func initChannels() {
-	sendInfoChan = make(chan ToChat, 10)
-	photoInfoChan = make(chan *PhotoInfo, 10)
-	coordsInfoChan = make(chan *CoordInfo, 10)
-	levelInfoChan = make(chan *LevelInfo, 10)
+	// sendInfoChan = make(chan en.ToChat, 10)
+	// photoInfoChan = make(chan *PhotoInfo, 10)
+	// coordsInfoChan = make(chan *CoordInfo, 10)
+	levelInfoChan = make(chan *en.Level, 10)
+	messageChan = make(chan MessageSender, 10)
 }
 
-func initChat(bot *telebot.Bot, chatId int64) telebot.Chat {
-	var chat = telebot.Chat{ID: chatId}
+func initChat(bot *tb.Bot, chatID int64) tb.Chat {
+	var chat = tb.Chat{ID: chatID}
 	chat, err := bot.GetChat(chat)
 	if err != nil {
 		log.Print("Failed to update chat info")
@@ -459,7 +528,7 @@ func initChat(bot *telebot.Bot, chatId int64) telebot.Chat {
 	return chat
 }
 
-func sendLevelInfo(info ToChat, channel chan ToChat, callback func() string, args ...string) {
+func sendLevelInfo(info en.ToChat, channel chan en.ToChat, callback func() string, args ...string) {
 	channel <- info
 
 	if callback != nil {
@@ -469,15 +538,15 @@ func sendLevelInfo(info ToChat, channel chan ToChat, callback func() string, arg
 
 func initTimeLevelChecking() *LevelTimeCheckingMachine {
 	var (
-		hourTimeChecker           TimeChecker = TimeChecker{60 * 60 * time.Second}
-		halfHourTimeChecker       TimeChecker = TimeChecker{30 * 60 * time.Second}
-		fifteenMinutesTimeChecker TimeChecker = TimeChecker{15 * 60 * time.Second}
-		fiveMinutesTimeChecker    TimeChecker = TimeChecker{5 * 60 * time.Second}
-		oneMinuteTimeChecker      TimeChecker = TimeChecker{60 * time.Second}
-		zeroTimeChecker           TimeChecker = TimeChecker{-1 * time.Second}
+		hourTimeChecker           = TimeChecker{60 * 60 * time.Second}
+		halfHourTimeChecker       = TimeChecker{30 * 60 * time.Second}
+		fifteenMinutesTimeChecker = TimeChecker{15 * 60 * time.Second}
+		fiveMinutesTimeChecker    = TimeChecker{5 * 60 * time.Second}
+		oneMinuteTimeChecker      = TimeChecker{60 * time.Second}
+		zeroTimeChecker           = TimeChecker{-1 * time.Second}
 
 		fsm   LevelTimeCheckingMachine
-		rules Ruleset = Ruleset{}
+		rules = Ruleset{}
 	)
 
 	rules.AddTransition(hourTimeChecker, halfHourTimeChecker)
@@ -493,13 +562,14 @@ func initTimeLevelChecking() *LevelTimeCheckingMachine {
 
 func main() {
 	var (
-		envConfig EnvConfig
-		bot       *telebot.Bot
-		err       error
-		updates   chan telebot.Message
-		update    telebot.Message
-		en        EnAPI
-		fsm       *LevelTimeCheckingMachine
+		envConfig     EnvConfig
+		bot           *tb.Bot
+		err           error
+		updates       chan tb.Message
+		update        tb.Message
+		engine        en.API
+		commandsStore *CommandStore
+		fsm           *LevelTimeCheckingMachine
 	)
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -507,7 +577,7 @@ func main() {
 	err = envconfig.Process("bonya", &envConfig)
 	FailOnError(err, "Can't read environment variables")
 
-	bot, err = telebot.NewBot(envConfig.BotToken)
+	bot, err = tb.NewBot(envConfig.BotToken)
 	FailOnError(err, "Can't connect to bot server")
 
 	initChannels()
@@ -522,87 +592,128 @@ func main() {
 
 		for {
 			select {
-			case nsi := <-sendInfoChan:
-				log.Print("Send text to Telegram chat")
-				//log.Println(nsi.ToText())
-				//log.Println(mainChat)
-				text := nsi.ToText()
-				//if len(text) > 4096 {
-				//	for
-				//}
-				err := bot.SendMessage(mainChat, text,
-					&telebot.SendOptions{ParseMode: telebot.ModeMarkdown,
-						DisableWebPagePreview: true,
-						ReplyTo:               nsi.ReplyTo()})
-				if err != nil {
-					log.Println(err)
-				}
-			case ci := <-coordsInfoChan:
-				log.Print("Send coordinates to chat")
-				bot.SendVenue(ci.Recepient, ci.Location, ci.Options)
-			case pi := <-photoInfoChan:
-				log.Print("Send images to Telegram chat")
-				bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
+			// case ts := <-telegramSenderChan:
+			// mi.Message.Send(ts.Recipient, ts.Message.Body(), ts.Options)
+			// recepient := message.GetRecepient()
+			// options := message.GetOptions()
+			// body := message.GetBody()
+			//
+			// switch si.Type {
+			case message := <-messageChan:
+				message.Send(bot)
+			// case PhotoMessage:
+			// 	bot.SendPhoto(recipient, body, options)
+			// case CoordinatesMessage:
+			// 	bot.SendVenue(recipient, venue, options)
+			// }
+			// case nsi := <-sendInfoChan:
+			// 	log.Print("Send text to Telegram chat")
+			// 	//log.Println(nsi.ToText())
+			// 	//log.Println(mainChat)
+			// 	text := nsi.ToText()
+			// 	//if len(text) > 4096 {
+			// 	//	for
+			// 	//}
+			// 	err := bot.SendMessage(mainChat, text,
+			// 		&tb.SendOptions{ParseMode: tb.ModeMarkdown,
+			// 			DisableWebPagePreview: true,
+			// 			ReplyTo:               nsi.ReplyTo()})
+			// 	if err != nil {
+			// 		log.Println(err)
+			// 	}
+			// case ci := <-coordsInfoChan:
+			// 	log.Print("Send coordinates to chat")
+			// 	bot.SendVenue(ci.Recepient, ci.Location, ci.Options)
+			// case pi := <-photoInfoChan:
+			// 	log.Print("Send images to Telegram chat")
+			// 	bot.SendPhoto(pi.Recepient, pi.Photo, pi.Options)
 			case li := <-levelInfoChan:
 				//log.Println("Receive level from channel")
-				if isNewLevel(en.CurrentLevel, li) {
+				if isNewLevel(engine.CurrentLevel, li) {
 					log.Printf("New level #%d", li.Number)
-					en.CurrentLevel = li
-					en.CurrentLevel.ProcessText()
+					engine.CurrentLevel = li
+					engine.CurrentLevel.ProcessText()
 					fsm.ResetState(li.Timeout * time.Second)
 
-					sendLevelInfo(en.CurrentLevel, sendInfoChan, nil)
-					SendImageFromUrl(mainChat, en.CurrentLevel.Images)
-					SendCoords(mainChat, en.CurrentLevel.Coords)
+					// sendLevelInfo(engine.CurrentLevel, sendInfoChan, nil)
+					SendImageFromUrl(mainChat, engine.CurrentLevel.Images)
+					SendCoords(mainChat, engine.CurrentLevel.Coords)
 				}
-				go CheckHelps(en.CurrentLevel, li)
+				go CheckHelps(engine.CurrentLevel, li)
 				//go CheckMixedActions(en.CurrentLevel, li)
-				go CheckBonuses(en.CurrentLevel, li)
-				go CheckSectors(en.CurrentLevel, li)
+				go CheckBonuses(engine.CurrentLevel, li)
+				go CheckSectors(engine.CurrentLevel, li)
 				go CheckLevelTimeLeft(fsm, li)
-				en.CurrentLevel = li
+				engine.CurrentLevel = li
 			}
 		}
 	}()
 
 	jar, _ := cookiejar.New(nil)
-	log.Println(envConfig.User, envConfig.Password)
-	en = EnAPI{
+	engine = en.API{
 		Username:      envConfig.User,
 		Password:      envConfig.Password,
 		Client:        &http.Client{Jar: jar},
-		CurrentGameID: envConfig.GameId,
+		CurrentGameID: envConfig.GameID,
 		CurrentLevel:  nil,
 		Domain:        envConfig.EngineDomain,
 		Levels:        list.New()}
-	en.Login()
+	engine.Login2(envConfig.User, envConfig.Password)
+	// engine.Login()
 
 	log.Printf("Authorized on account %s", bot.Identity.Username)
-	updates = make(chan telebot.Message, 50)
-	bot.Listen(updates, 30*time.Second)
+	updates = make(chan tb.Message, 50)
+	callbacks := make(chan tb.Callback, 50)
+	bot.Messages = updates
+	bot.Callbacks = callbacks
+	go bot.Start(30 * time.Second)
+	// bot.Listen(updates, 30*time.Second)
 
-	setChat(initChat(bot, envConfig.MainChat))
-	en.CurrentLevel, _ = en.GetLevelInfo()
-	if en.CurrentLevel != nil {
-		fsm.ResetState(en.CurrentLevel.TimeoutSecondsRemain * time.Second)
-		log.Printf("MAIN fsm: %.0f minute(s)", fsm.CurrentState().(TimeChecker).compareTime.Minutes())
-	}
-	startWatching(&en)
+	// setChat(initChat(bot, envConfig.MainChat))
+	// engine.CurrentLevel, _ = engine.GetLevelInfo()
+	// if engine.CurrentLevel != nil {
+	// 	fsm.ResetState(engine.CurrentLevel.TimeoutSecondsRemain * time.Second)
+	// 	log.Printf("MAIN fsm: %.0f minute(s)", fsm.CurrentState().(TimeChecker).compareTime.Minutes())
+	// }
+	// startWatching(&engine)
 
-	go startServer(&en)
+	go startServer(&engine)
+
+	commandsStore = NewCommandStore()
+	commandsStore.init()
 
 	for {
 		select {
-		case update = <-updates:
+		case update = <-bot.Messages:
 			//log.Printf("Read updates from Telegram: %s", update.Text)
 			if update.Text != "" {
+				log.Printf("[INFO] [%s@%s(%d)] %s", update.Sender.Username, update.Chat.Title, update.Chat.ID,
+					update.Text)
 				if IsBotCommand(&update) {
-					go ProcessBotCommand(&update, &en)
+					commandName, arguments := extractCommandAndArguments(update)
+					commandHandler, err := commandsStore.Get(commandName)
+					if err != nil {
+						log.Printf("[WARNING] %s", err)
+					}
+					// TODO: according to the sender/chat need to find corresponding game and get current level for it
+					// TODO: pass Game struct rather than just levelInfo, because there is no levelInfo at the start
+					levelInfo, err := engine.GetLevelInfo()
+					command, err := commandHandler(messageChan, update, levelInfo)
+					if err != nil {
+						log.Printf("[ERROR] Something bad happened when constructing command handler: %s", err)
+					}
+					go command.Process(arguments)
+					// go ProcessBotCommand(&update, &engine, bot)
 				}
 
-				log.Printf("[%s@%s(%d)] %s", update.Sender.Username, update.Chat.Title, update.Chat.ID,
-					update.Text)
 			}
+		// case callback := <-callbacks:
+		case callback := <-bot.Callbacks:
+			log.Printf("CALLBACK: %s %s", callback.Sender.Username, callback.Data)
+			bot.AnswerCallbackQuery(&callback, &tb.CallbackResponse{CallbackID: callback.ID})
+			// TODO: maybe store fsm for separate chat in redis, or in memory. and when
+			//       get update for certain chat retrieve object with correct state
+
 			//bot.SendMessage(update.Chat, fmt.Sprintf("Dear %s, I can't understand you", update.Sender.Username),
 			//	&telebot.SendOptions{ReplyTo: update, ParseMode: telebot.ModeMarkdown})
 		}
