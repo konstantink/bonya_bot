@@ -18,8 +18,8 @@ type ToChat interface {
 }
 
 type ExtraInfo struct {
-	coords Coordinates
-	images Images
+	Coords Coordinates
+	Images Images
 }
 
 type HelpState int8
@@ -46,8 +46,8 @@ type HelpInfo struct {
 
 func (help *HelpInfo) ProcessText() {
 	//log.Printf("Before %s", help.HelpText)
-	help.HelpText, help.coords = ReplaceCoordinates(help.HelpText)
-	help.HelpText, help.images = ReplaceImages(help.HelpText, "Картинка")
+	help.HelpText, help.Coords = ReplaceCoordinates(help.HelpText)
+	help.HelpText, help.Images = ReplaceImages(help.HelpText, "Картинка")
 	help.HelpText = ReplaceCommonTags(help.HelpText)
 	//log.Printf("After %s", help.HelpText)
 }
@@ -222,13 +222,13 @@ type BonusInfo struct {
 type LevelBonuses []BonusInfo
 
 func (bi *BonusInfo) ProcessText() {
-	bi.Help, bi.coords = ReplaceCoordinates(bi.Help)
-	bi.Help, bi.images = ReplaceImages(bi.Help, "Бонус")
+	bi.Help, bi.Coords = ReplaceCoordinates(bi.Help)
+	bi.Help, bi.Images = ReplaceImages(bi.Help, "Бонус")
 	bi.Help = ReplaceCommonTags(bi.Help)
 }
 
 func (bi *BonusInfo) ToText() (result string) {
-	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Help)
+	result = fmt.Sprintf(BonusInfoString, bi.Name, bi.Answer["Answer"], bi.Help)
 	return
 }
 
@@ -305,8 +305,8 @@ func NewLevelInfo(response *http.Response) *LevelInfo {
 }
 
 func (li *LevelInfo) ProcessText() {
-	li.Tasks[0].TaskText, li.coords = ReplaceCoordinates(li.Tasks[0].TaskText)
-	li.Tasks[0].TaskText, li.images = ReplaceImages(li.Tasks[0].TaskText, "Картинка")
+	li.Tasks[0].TaskText, li.Coords = ReplaceCoordinates(li.Tasks[0].TaskText)
+	li.Tasks[0].TaskText, li.Images = ReplaceImages(li.Tasks[0].TaskText, "Картинка")
 	li.Tasks[0].TaskText = ReplaceCommonTags(li.Tasks[0].TaskText)
 }
 
