@@ -14,8 +14,9 @@ import (
 	"strconv"
 	"time"
 	//"io/ioutil"
-	"github.com/tucnak/telebot"
 	"strings"
+
+	"github.com/tucnak/telebot"
 )
 
 type EnvConfig struct {
@@ -38,6 +39,10 @@ func (c Coordinate) String() (text string) {
 	text = fmt.Sprintf("%f,%f", c.Lat, c.Lon)
 	return
 }
+
+// func (c Coordinate) GenerateMapsMeDeepLink() (uri string) {
+// 	uri = fmt.Sprintf("mapsme://")
+// }
 
 type Image struct {
 	url     string

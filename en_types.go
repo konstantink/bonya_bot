@@ -3,13 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/tucnak/telebot"
 	"io/ioutil"
 	"log"
 	"math"
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
+
+	"github.com/tucnak/telebot"
 )
 
 type ToChat interface {
@@ -65,9 +68,7 @@ func (help *HelpInfo) ReplyTo() (message telebot.Message) {
 type LevelHelps []HelpInfo
 type LevelPenaltyHelps []HelpInfo
 
-//
-// Task related types
-//
+// TaskInfo related types
 type TaskInfo struct {
 	ReplaceNlToBr     bool
 	TaskText          string
@@ -120,9 +121,9 @@ func (m LevelMixedActions) Swap(i, j int) {
 func (m MixedActionInfo) ToText() (result string) {
 	log.Println("New MixedAction is added")
 	if m.IsCorrect {
-		result = fmt.Sprintf(CorrectAnswerString, m.Answer, m.Login)
+		result = fmt.Sprintf(CorrectAnswerString, m.Answer) //, m.Login)
 	} else {
-		result = fmt.Sprintf(IncorrectAnswerString, m.Answer, m.Login)
+		result = fmt.Sprintf(IncorrectAnswerString, m.Answer) //, m.Login)
 	}
 	return
 }
@@ -343,6 +344,79 @@ func (li *LevelInfo) ToText() (result string) {
 
 func (li *LevelInfo) ReplyTo() (message telebot.Message) {
 	return
+}
+
+//
+// GetTaskText - return the text of level task.
+func (li *LevelInfo) GetTaskText() string {
+	return li.Tasks[0].TaskText
+}
+
+//
+// GetCoordinates - returns list of coordinates available in the task text.
+// In current implementation it parses task text and extract coordinates.
+// Ideally task text should be parsed once it is available and after this
+// function should just return list of coordinates.
+func (li *LevelInfo) GetCoordinates() Coordinates {
+	var (
+		// <a href="geo:49.976136, 36.267256">49.976136, 36.267256</a>
+		// geoHrefRe *regexp.Regexp = regexp.MustCompile("<a.+?href=\"geo:(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})\">(.+?)</a>")
+		// <a href="https://www.google.com.ua/maps/@50.0363257,36.2120039,19z" target="blank">50.036435 36.211914</a>
+		// hrefRe *regexp.Regexp = regexp.MustCompile("<a.+?href=\"https?://.+?(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,}).*?\">(.+?)</a>")
+		// 49.976136, 36.267256
+		// numbersRe *regexp.Regexp = regexp.MustCompile("(\\d{2}[.,]\\d{3,}),?\\s*(\\d{2}[.,]\\d{3,})")
+
+		parser = html.NewTokenizer(strings.NewReader(li.GetTaskText()))
+		// mr     [][]string
+		// res    string      = li.GetTaskText()
+		walk   func(*html.Node)
+		coords Coordinates = make(Coordinates, 0, 0)
+	)
+
+	walk = func(node *html.Node) {
+		log.Println("Walk ", node.Type)
+		switch node.Type {
+		case html.ElementNode:
+			if node.Data == "a" {
+				log.Printf("Data: %s", node.Data)
+			}
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	// depth := 0
+	// for {
+	// 	tt := parser.Next()
+	// 	switch tt {
+	// 	case html.ErrorToken:
+	// 		log.Printf("%s", parser.Err())
+	// 	case html.TextToken:
+	// 		if depth > 0 {
+	// 			// emitBytes should copy the []byte it receives,
+	// 			// if it doesn't process it immediately.
+	// 			log.Printf("%s", parser.Text())
+	// 		}
+	// 	case html.StartTagToken, html.EndTagToken:
+	// 		tn, _ := parser.TagName()
+	// 		if len(tn) == 1 && tn[0] == 'a' {
+	// 			if tt == html.StartTagToken {
+	// 				depth++
+	// 			} else {
+	// 				depth--
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	// parser = html.NewTokenizer(strings.NewReader(li.GetTaskText()))
+	parsed, err := html.Parse(strings.NewReader(li.GetTaskText()))
+	if err != nil {
+		log.Fatalf("Failed to parse task text:\n%s", li.GetTaskText())
+	}
+	walk(parsed)
+	log.Printf("[GetCoordinates] %s", parsed)
+	return coords
 }
 
 type ShortLevelInfo struct {
